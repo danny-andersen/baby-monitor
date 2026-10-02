@@ -1,0 +1,77 @@
+# Miscellaneous
+*.class
+*.lock
+*.log
+*.pyc
+*.swp
+.buildlog/
+.history
+
+
+# Python specific
+__pycache__/
+*.egg-info/
+.eggs/
+venv/
+
+# Private files
+url.txt
+credentials.txt
+baby-monitor.png
+
+baby-cam/baby-cam.cfg
+baby-cam/motion.key
+baby-cam/motion.pem
+
+
+#Key files
+flutter_cctv/assets/api-key.json
+flutter_cctv/assets/connect-data
+flutter_cctv/lib/local_settings.dart
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+flutter_cctv/**/doc/api/
+flutter_cctv/**/ios/Flutter/.last_build_id
+flutter_cctv/.dart_tool/
+flutter_cctv/.flutter-plugins
+flutter_cctv/.flutter-plugins-dependencies
+flutter_cctv/.packages
+flutter_cctv/.pub-cache/
+flutter_cctv/.pub/
+flutter_cctv//build/
+
+flutter_cctv/windows/runner/**
+flutter_cctv/linux/runner/**
+flutter_cctv/macros/Runner/**
+flutter_cctv/macos/Runner/**
+flutter_cctv/macos/Runner.*
+flutter_cctv/ios/Runner/**
+flutter_cctv/ios/Runner.*
+
+local.properties
+
+flutter_cctv/*.lock
+flutter_cctv/*.bin
+
+# Symbolication related
+flutter_cctv/app.*.symbols
+
+# Obfuscation related
+flutter_cctv/app.*.map.json
+
+# Android Studio will place build artifacts here
+flutter_cctv/android/app/debug
+flutter_cctv/android/app/profile
+flutter_cctv/android/app/release
+flutter_cctv/android/app/.cxx

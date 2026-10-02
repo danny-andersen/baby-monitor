@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file>icons/icons8-video-100.png</file>
+  </qresource>
+</RCC>

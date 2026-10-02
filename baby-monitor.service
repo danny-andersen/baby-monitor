@@ -1,0 +1,12 @@
+[Unit]
+Description=Service to provide a GUI that shows a baby cam and various control buttons and status
+
+[Service]
+User=danny
+WorkingDirectory=/home/danny/monitor
+ExecStart=/home/danny/monitor/start-baby-monitor.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
