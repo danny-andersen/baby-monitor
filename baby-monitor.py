@@ -1,5 +1,6 @@
 import sys
 import random
+import subprocess
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QColor, QPainter, QPen
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QLabel,
     QStackedLayout,
+    QMessageBox,
 )
 from PyQt6.QtNetwork import (
     QNetworkAccessManager,
@@ -119,15 +121,20 @@ class MainWindow(QWidget):
 
         self.audio_button = QPushButton()
         self.video_button = QPushButton()
+        self.shutdown_button = QPushButton()
 
         self.update_audio_button()
         self.update_video_button()
 
+        self.shutdown_button.setText("Shutdown")
+        
         self.audio_button.clicked.connect(self.toggle_audio)
         self.video_button.clicked.connect(self.toggle_video)
+        self.shutdown_button.clicked.connect(self.shutdown_requested)
 
         self.audio_button.setMinimumHeight(80)
         self.video_button.setMinimumHeight(80)
+        self.shutdown_button.setMinimumHeight(80)
 
         self.audio_button.setStyleSheet(
             "font-size: 20px; font-weight: bold;"
@@ -136,12 +143,19 @@ class MainWindow(QWidget):
         self.video_button.setStyleSheet(
             "font-size: 20px; font-weight: bold;"
         )
-
+        self.shutdown_button.setStyleSheet("""
+            QPushButton {
+            background-color: #b00000;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+}        """)
+        
         left_layout = QVBoxLayout()
-        # left_layout.addWidget(QLabel("Status"))
         left_layout.addWidget(self.bar_graph, stretch=1)
         left_layout.addWidget(self.audio_button)
         left_layout.addWidget(self.video_button)
+        left_layout.addWidget(self.shutdown_button)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(0)
 
@@ -332,6 +346,26 @@ class MainWindow(QWidget):
         """
         print(f"Video enabled = {enabled}")
 
+    def shutdown_requested(self):
+
+        reply = QMessageBox.question(
+            self,
+            "Shutdown",
+            "Shutdown Monitor?",
+            QMessageBox.StandardButton.Yes |
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.shutdown_pi()
+
+    def shutdown_pi(self):
+
+        print("Shutting down Raspberry Pi")
+
+        subprocess.Popen(
+            ["sudo", "shutdown", "-h", "now"]
+        )
 
     def load_url_from_file(self) -> str:
         """
