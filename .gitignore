@@ -75,3 +75,5 @@ flutter_cctv/android/app/debug
 flutter_cctv/android/app/profile
 flutter_cctv/android/app/release
 flutter_cctv/android/app/.cxx
+baby-cam/baby-cam-esp32/wifi-defs.h
+baby-cam/audio.pcm
