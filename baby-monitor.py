@@ -111,7 +111,7 @@ class MainWindow(QWidget):
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint
         )
-        self.video_url = self.load_url_from_file()
+        self.load_urls_from_file()
         
         # --------------------
         # Left side
@@ -216,9 +216,6 @@ class MainWindow(QWidget):
         layout.addLayout(left_layout)
         layout.addWidget(self.video_container)
 
-        # self.web_view.load(QUrl(self.video_url))
-        # self.web_view.setUrl(QUrl(self.video_url))
-
         # --------------------
         # Update timer (100 ms)
         # --------------------
@@ -255,10 +252,10 @@ class MainWindow(QWidget):
     def check_camera(self):
 
         request = QNetworkRequest(
-            QUrl(self.video_url)
+            QUrl(self.control_url)
         )
 
-        self.reply = self.network_manager.head(request)
+        self.reply = self.network_manager.get(request)
 
         self.reply.finished.connect(
             self.on_camera_check_finished
@@ -279,7 +276,7 @@ class MainWindow(QWidget):
         if self.camera_available(self.reply.error()):
             if self.camera_up == False:
                 print("Camera is back up, reloading video feed")
-                self.web_view.setUrl(QUrl(self.video_url))
+                self.web_view.setUrl(QUrl(self.camera_url))
                 self.camera_up = True
             self.video_stack.setCurrentWidget(self.web_view)
     
@@ -367,25 +364,39 @@ class MainWindow(QWidget):
             ["sudo", "shutdown", "-h", "now"]
         )
 
-    def load_url_from_file(self) -> str:
-        """
-        Reads the first line from url.txt and returns it.
-        """
+    def load_urls_from_file(self):
+
+        self.camera_url = ""
+        self.control_url = ""
 
         try:
             with open("url.txt", "r", encoding="utf-8") as f:
-                url = f.readline().strip()
 
-            print(f"Loaded URL: {url}")
-            return url
+                for line in f:
+                    line = line.strip()
 
-        except FileNotFoundError:
-            print("url.txt not found")
-            return ""
+                    if not line:
+                        continue
+
+                    parts = line.split(",", 1)
+
+                    if len(parts) != 2:
+                        continue
+
+                    label = parts[0].strip().lower()
+                    url = parts[1].strip()
+
+                    if label == "camera":
+                        self.camera_url = url
+
+                    elif label == "control":
+                        self.control_url = url
+
+            print(f"Camera URL : {self.camera_url}")
+            print(f"Control URL: {self.control_url}")
 
         except Exception as e:
-            print(f"Failed to load URL: {e}")
-            return ""
+            print(f"Error reading url.txt: {e}")
 
 def main():
     app = QApplication(sys.argv)
