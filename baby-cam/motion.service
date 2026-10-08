@@ -1,13 +1,16 @@
 [Unit]
 Description=Motion detection video capture daemon
 Documentation=man:motion(1)
+After=multi-user.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=danny
-ExecStart=sudo /usr/bin/libcamerify /usr/bin/motion -c /home/danny/camera/baby-cam.cfg
+User=root
+Group=root
+ExecStart=/usr/bin/libcamerify /usr/bin/motion -c /home/danny/camera/baby-cam.cfg
 Restart=always
-RestartSec=30
+RestartSec=15
 
 [Install]
 WantedBy=multi-user.target

@@ -1,6 +1,7 @@
 import sys
 import random
 import subprocess
+from urllib.parse import urlparse
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QColor, QPainter, QPen
@@ -31,7 +32,7 @@ class BarGraphWidget(QWidget):
         self.value = 0.0
         self.setMinimumWidth(200)
         self.setMinimumHeight(150)
-
+        
     def set_value(self, value: float):
         self.value = max(0.0, min(5.0, value))
         self.update()
@@ -112,6 +113,15 @@ class MainWindow(QWidget):
             Qt.WindowType.WindowStaysOnTopHint
         )
         self.load_urls_from_file()
+        if (self.control_url == "") or (self.camera_url == ""):
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Please provide camera and control URLs in url.txt"
+            )
+            sys.exit(1)
+        self.host = urlparse(self.control_url).hostname
+
         
         # --------------------
         # Left side
@@ -250,16 +260,52 @@ class MainWindow(QWidget):
 
 
     def check_camera(self):
+        # First check camera host is reachable via ping 
+        try:
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", "2", self.host],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3
+            )
 
-        request = QNetworkRequest(
-            QUrl(self.control_url)
-        )
+            if result.returncode == 0:
+                # Host is up - check camera is running
+                try:
+                    request = QNetworkRequest(
+                        QUrl(self.control_url)
+                    )
 
-        self.reply = self.network_manager.get(request)
+                    self.reply = self.network_manager.get(request)
 
-        self.reply.finished.connect(
-            self.on_camera_check_finished
-        )        
+                    # Set camera up / down when connect finished 
+                    self.reply.finished.connect(
+                        self.on_camera_check_finished
+                    )        
+                    # result = subprocess.run(
+                    #     [
+                    #         "wget",
+                    #         "--spider",
+                    #         "--timeout=2",
+                    #         "--tries=1",
+                    #         self.control_url
+                    #     ],
+                    #     stdout=subprocess.DEVNULL,
+                    #     stderr=subprocess.DEVNULL,
+                    #     timeout=5
+                    # )
+
+                except Exception:
+                    self.camera_up = False
+            else:
+                print(f"Ping failed for host {self.host}, returncode={result.returncode}")
+                self.video_stack.setCurrentWidget(
+                    self.video_error_label
+                )
+                self.camera_up = False
+                    
+        except Exception:
+            self.camera_up = False
 
     def camera_available(self, error):
 
@@ -272,7 +318,7 @@ class MainWindow(QWidget):
         return error not in down_errors
     
     def on_camera_check_finished(self):
-        # print(f"Camera check finished, error={self.reply.error()} camera_up={self.camera_up}")
+        print(f"Camera check finished, error={self.reply.error()} camera_up={self.camera_up}")
         if self.camera_available(self.reply.error()):
             if self.camera_up == False:
                 print("Camera is back up, reloading video feed")
