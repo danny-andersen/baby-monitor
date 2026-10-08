@@ -24,18 +24,26 @@ from PyQt6.QtNetwork import (
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
+from audio_streamer import AudioStreamer
+
 
 class BarGraphWidget(QWidget):
     def __init__(self):
         super().__init__()
 
         self.value = 0.0
+        self.audio_status = ""
         self.setMinimumWidth(200)
         self.setMinimumHeight(150)
         
     def set_value(self, value: float):
-        self.value = max(0.0, min(5.0, value))
+        self.value = max(0.0, min(100.0, value))
         self.update()
+
+    def set_audio_status(self, status: str):
+        self.audio_status = status
+        self.update()
+
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -54,7 +62,7 @@ class BarGraphWidget(QWidget):
         painter.setPen(QPen(Qt.GlobalColor.black, 2))
         painter.drawRect(x, y, bar_width, bar_height)
 
-        fill_height = int((self.value / 5.0) * bar_height)
+        fill_height = int((self.value / 100.0) * bar_height)
 
         colours = [
             QColor(0, 180, 0),      # green
@@ -85,11 +93,11 @@ class BarGraphWidget(QWidget):
                     colour
                 )
 
-        # painter.drawText(
-        #     self.rect(),
-        #     Qt.AlignmentFlag.AlignCenter,
-        #     f"{self.value:.2f}"
-        # )
+        painter.drawText(
+            self.rect(),
+            Qt.AlignmentFlag.AlignCenter,
+            self.audio_status
+        )
 
 
 class MainWindow(QWidget):
@@ -230,10 +238,6 @@ class MainWindow(QWidget):
         # Update timer (100 ms)
         # --------------------
 
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_bar_graph)
-        self.timer.start(100)
-
         self.network_manager = QNetworkAccessManager()
         
         self.camera_watchdog = QTimer(self)
@@ -241,6 +245,21 @@ class MainWindow(QWidget):
             self.check_camera
         )
         self.camera_watchdog.start(2000)
+        
+        self.audio_streamer = AudioStreamer(
+            self.audio_url,
+            gain=3.0
+        )
+
+        self.audio_streamer.volume_changed.connect(
+            self.audio_level_changed
+        )
+
+        self.audio_streamer.status_changed.connect(
+            self.audio_status_changed
+        )        
+
+        self.audio_streamer.start_stream()
 
     def on_load_started(self):
         print("Video stream started")
@@ -338,15 +357,17 @@ class MainWindow(QWidget):
     # Bar Graph Update
     # ==================================================
 
-
-    def update_bar_graph(self):
-        """
-        Replace this with your real float source.
-        Expected range: 0.0 -> 5.0
-        """
-        value = random.uniform(0.0, 5.0)
+    def audio_level_changed(self, level):
+        # print(f"Audio level changed: {level:.2f}, current value: {self.audio_streamer.volume_level():.2f}")
+        value = int(level * 100)
         self.bar_graph.set_value(value)
 
+    def audio_status_changed(self, status):
+        if not self.audio_streamer.is_streaming():
+            self.bar_graph.set_audio_status(status)
+        else:
+            self.bar_graph.set_audio_status("")
+            
     # ==================================================
     # Audio
     # ==================================================
@@ -362,11 +383,13 @@ class MainWindow(QWidget):
         self.on_audio_changed(self.audio_enabled)
 
     def on_audio_changed(self, enabled: bool):
-        """
-        Extend this function with whatever action
-        you want to happen when Audio changes.
-        """
-        print(f"Audio enabled = {enabled}")
+        if self.audio_streamer.is_streaming():
+            self.audio_streamer.stop_stream()
+            self.audio_toggle_button.setText("Start")
+
+        else:
+            self.audio_streamer.start_stream()
+            self.audio_toggle_button.setText("Stop")
 
     # ==================================================
     # Video
@@ -414,7 +437,7 @@ class MainWindow(QWidget):
 
         self.camera_url = ""
         self.control_url = ""
-
+        self.audio_url = ""
         try:
             with open("url.txt", "r", encoding="utf-8") as f:
 
@@ -434,12 +457,14 @@ class MainWindow(QWidget):
 
                     if label == "camera":
                         self.camera_url = url
-
                     elif label == "control":
                         self.control_url = url
+                    elif label == "audio":
+                        self.audio_url = url
 
             print(f"Camera URL : {self.camera_url}")
             print(f"Control URL: {self.control_url}")
+            print(f"Audio URL: {self.audio_url}")
 
         except Exception as e:
             print(f"Error reading url.txt: {e}")
