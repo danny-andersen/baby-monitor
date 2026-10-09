@@ -1,118 +1,130 @@
+
+import math
 import queue
+import subprocess
 import threading
 import time
-import subprocess
-import requests
 
 import numpy as np
+import requests
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
 class AudioStreamer(QThread):
     """
-    Streams PCM audio from an ESP32 HTTP endpoint to HDMI via ALSA.
+    Three-stage ESP32 PCM audio streamer.
 
-    The HTTP receiver and ALSA playback are deliberately decoupled.
+    Stage 1: HTTP receiver -> raw PCM queue
+    Stage 2: Audio processor -> processed stereo queue
+    Stage 3: Playback loop -> aplay
 
-    Brief queue starvation does NOT restart ALSA.  ALSA is restarted only
-    when the HTTP source is known to have disconnected or ALSA itself dies.
+    Input:
+        16 kHz, signed 16-bit little-endian, mono PCM from /audio.
 
-    Also maintains a 0.0 .. 1.0 volume level based on RMS over the
-    most recent 100 ms of audio.
+    Output:
+        16 kHz, signed 16-bit little-endian, stereo PCM via aplay.
     """
 
-    volume_changed = pyqtSignal(float)
     status_changed = pyqtSignal(str)
+    volume_changed = pyqtSignal(float)
+    error_occurred = pyqtSignal(str)
 
-    SOURCE_TIMEOUT = 1.5
-    HTTP_READ_TIMEOUT = 2.0
-
+    # Audio format
     SAMPLE_RATE = 16000
-    CHANNELS = 2
+    INPUT_CHANNELS = 1
+    OUTPUT_CHANNELS = 2
+    SAMPLE_WIDTH_BYTES = 2
 
-    # 1024 mono samples at 16 kHz = 64 ms
+    # 1024 mono samples = 2048 bytes = 64 ms
     BLOCK_SAMPLES = 1024
+    RAW_BLOCK_BYTES = BLOCK_SAMPLES * SAMPLE_WIDTH_BYTES
 
-    # Fade length = 10 ms
-    FADE_SAMPLES = 160
-
-    # 4 blocks = approximately 256 ms prebuffer
+    # Queue capacities
+    RAW_QUEUE_BLOCKS = 32
+    PLAYBACK_QUEUE_BLOCKS = 32
     PREBUFFER_BLOCKS = 6
 
-    # Maximum queued audio = approximately 512 ms
-    MAX_QUEUE_BLOCKS = 32
-    TARGET_QUEUE_BLOCKS = 6
-
+    # HTTP and reconnect handling
     HTTP_CHUNK_SIZE = 2048
+    HTTP_CONNECT_TIMEOUT = 5.0
+    HTTP_READ_TIMEOUT = 2.0
+    RECONNECT_DELAY = 1.0
+    SOURCE_TIMEOUT = 1.5
 
+    # Audio processing
+    DEFAULT_GAIN = 2.0
+    FADE_SAMPLES = 160
     LEVEL_WINDOW_MS = 100
-
-    LEVEL_WINDOW_SAMPLES = (
-        SAMPLE_RATE * LEVEL_WINDOW_MS // 1000
-    )
+    LEVEL_MIN_DBFS = -60.0
+    LEVEL_MAX_DBFS = -20.0
 
     def __init__(
         self,
-        esp32_url,
+        audio_url,
         alsa_device="plughw:CARD=vc4hdmi0,DEV=0",
-        gain=2.0,
+        gain=DEFAULT_GAIN,
         parent=None,
     ):
         super().__init__(parent)
 
-        self.esp32_url = esp32_url
+        self.audio_url = audio_url
         self.alsa_device = alsa_device
-        self.gain = gain
+        self.gain = float(gain)
 
-        self._last_audio_time = 0.0
-        self._audio_time_lock = threading.Lock()
         self._stop_event = threading.Event()
+        self.source_connected = threading.Event()
 
-        # Indicates that the ESP32 HTTP connection is currently alive.
-        #
-        # IMPORTANT:
-        # Queue starvation while this is set is NOT considered a
-        # disconnection.
-        self._source_connected = threading.Event()
+        self._audio_time_lock = threading.Lock()
+        self._last_audio_time = 0.0
 
-        self.audio_queue = queue.Queue(
-            maxsize=self.MAX_QUEUE_BLOCKS
-        )
-
+        self._player_lock = threading.Lock()
         self.player = None
 
-        # Protect access to self.player because the receiver/playback
-        # threads and aplay monitor can all be active at different times.
-        self._player_lock = threading.Lock()
-
-        # Volume meter state
-        self._level_samples = np.zeros(
-            self.LEVEL_WINDOW_SAMPLES,
-            dtype=np.float32,
+        self.raw_queue = queue.Queue(
+            maxsize=self.RAW_QUEUE_BLOCKS
+        )
+        self.audio_queue = queue.Queue(
+            maxsize=self.PLAYBACK_QUEUE_BLOCKS
         )
 
-        self._level_position = 0
+        # Changes whenever a new HTTP stream is established.
+        # Queue entries carry the generation that produced them.
+        self._generation_lock = threading.Lock()
+        self._generation = 0
 
-        self.current_volume_level = 0.0
-        self.display_volume_level = 0.0
+        # Volume meter state
+        self._level_window_samples = (
+            self.SAMPLE_RATE * self.LEVEL_WINDOW_MS // 1000
+        )
+        self._level_buffer = np.empty(
+            0, dtype=np.float32
+        )
+        self._display_level = 0.0
 
-        self._volume_lock = threading.Lock()
+        # Prevent overlapping reconnect fades.
+        self._need_fade_in = True
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Public interface
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
 
     def start_stream(self):
         if self.isRunning():
             return
 
         self._stop_event.clear()
-        self._source_connected.clear()
+        self.source_connected.clear()
+
         with self._audio_time_lock:
             self._last_audio_time = 0.0
-        
-        self._clear_queue()
+
+        self._clear_queue(self.raw_queue)
+        self._clear_queue(self.audio_queue)
+
+        self._level_buffer = np.empty(0, dtype=np.float32)
+        self._display_level = 0.0
+        self._need_fade_in = True
 
         self.start()
 
@@ -121,385 +133,495 @@ class AudioStreamer(QThread):
             return
 
         self._stop_event.set()
-        self._source_connected.clear()
+        self.source_connected.clear()
 
-        self._clear_queue()
+        self._clear_queue(self.raw_queue)
+        self._clear_queue(self.audio_queue)
+
         self._stop_player()
 
-        self.wait(3000)
-
-    def is_streaming(self):
-        return (
-            self.isRunning()
-            and not self._stop_event.is_set()
-        )
-
-    def volume_level(self):
-        with self._volume_lock:
-            return self.display_volume_level
-
-    # ------------------------------------------------------------------
-    # Main QThread
-    # ------------------------------------------------------------------
+        # Allow the HTTP receiver to exit from its read timeout.
+        self.wait(4000)
 
     def run(self):
-
-        self.status_changed.emit(
-            "Starting audio stream"
-        )
-
         receiver = threading.Thread(
             target=self._http_receiver,
+            name="AudioHTTPReceiver",
+            daemon=True,
+        )
+        processor = threading.Thread(
+            target=self._audio_processor,
+            name="AudioProcessor",
             daemon=True,
         )
 
         receiver.start()
+        processor.start()
 
         try:
             self._playback()
-
         finally:
-
             self._stop_event.set()
-            self._source_connected.clear()
+            self.source_connected.clear()
 
+            self._clear_queue(self.raw_queue)
+            self._clear_queue(self.audio_queue)
             self._stop_player()
 
-            receiver.join(timeout=1.0)
+            receiver.join(timeout=3.0)
+            processor.join(timeout=3.0)
 
-            self.status_changed.emit(
-                "Audio stream stopped"
-            )
-            
+    # ---------------------------------------------------------
+    # Queue helpers
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _clear_queue(q):
+        while True:
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                break
+
+    def _put_latest(self, q, item):
+        """
+        Never block a producer waiting for queue space.
+        If full, discard the oldest item to limit latency.
+        """
+        try:
+            q.put_nowait(item)
+            return
+        except queue.Full:
+            pass
+
+        try:
+            q.get_nowait()
+        except queue.Empty:
+            pass
+
+        try:
+            q.put_nowait(item)
+        except queue.Full:
+            pass
+
+    def _current_generation(self):
+        with self._generation_lock:
+            return self._generation
+
+    def _new_generation(self):
+        with self._generation_lock:
+            self._generation += 1
+            return self._generation
+
+    # ---------------------------------------------------------
+    # Source health
+    # ---------------------------------------------------------
+
     def _mark_audio_received(self):
         with self._audio_time_lock:
             self._last_audio_time = time.monotonic()
 
-
     def _source_is_alive(self):
-        if not self._source_connected.is_set():
+        if not self.source_connected.is_set():
             return False
 
         with self._audio_time_lock:
             last_audio = self._last_audio_time
 
         return (
-            time.monotonic() - last_audio
-            < self.SOURCE_TIMEOUT
+            last_audio > 0
+            and time.monotonic() - last_audio < self.SOURCE_TIMEOUT
         )
 
-    # ------------------------------------------------------------------
-    # HTTP receiver
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
+    # Stage 1: HTTP receiver
+    # ---------------------------------------------------------
 
     def _http_receiver(self):
+        """
+        Receive bytes and assemble complete raw PCM blocks.
 
-        self.status_changed.emit(
-            "Connecting to ESP32"
-        )
+        No NumPy processing, volume calculations, gain or stereo
+        conversion is performed in this thread.
+        """
+        session = requests.Session()
 
-        while not self._stop_event.is_set():
+        try:
+            while not self._stop_event.is_set():
+                pending = bytearray()
+                connected_generation = None
 
-            # Always start a new HTTP connection with an empty byte buffer.
-            #
-            # This prevents a partial PCM block from a dead connection
-            # being combined with data from the next connection.
-            pending_pcm = bytearray()
-
-            try:
-                with requests.get(
-                    self.esp32_url,
-                    stream=True,
-                    timeout=(5, self.HTTP_READ_TIMEOUT),
-                ) as response:
-                    response.raise_for_status()
-
-                    self._source_connected.set()
-                    self._mark_audio_received()
-
+                try:
                     self.status_changed.emit(
-                        "ESP32 audio connected"
+                        "Connecting to ESP32 audio"
                     )
 
-                    mono_bytes_per_block = (
-                        self.BLOCK_SAMPLES * 2
-                    )
+                    with session.get(
+                        self.audio_url,
+                        stream=True,
+                        timeout=(
+                            self.HTTP_CONNECT_TIMEOUT,
+                            self.HTTP_READ_TIMEOUT,
+                        ),
+                    ) as response:
+                        response.raise_for_status()
 
-                    for chunk in response.iter_content(
-                        chunk_size=self.HTTP_CHUNK_SIZE
-                    ):
+                        connected_generation = self._new_generation()
 
-                        if self._stop_event.is_set():
-                            break
+                        self._clear_queue(self.raw_queue)
+                        self._clear_queue(self.audio_queue)
 
-                        if not chunk:
-                            continue
+                        with self._audio_time_lock:
+                            self._last_audio_time = time.monotonic()
 
-                        self._mark_audio_received()
-                        pending_pcm.extend(chunk)
-
-                        while (
-                            len(pending_pcm)
-                            >= mono_bytes_per_block
-                        ):
-
-                            block_bytes = pending_pcm[
-                                :mono_bytes_per_block
-                            ]
-
-                            del pending_pcm[
-                                :mono_bytes_per_block
-                            ]
-
-                            mono = np.frombuffer(
-                                block_bytes,
-                                dtype=np.int16,
-                            ).copy()
-
-                            stereo = self._process_audio(
-                                mono
-                            )
-
-                            self._put_audio(
-                                stereo
-                            )
-
-                    # If iter_content finishes without an exception,
-                    # the HTTP connection has ended normally.
-                    #
-                    # Unless we're deliberately stopping, treat this
-                    # exactly like a disconnect.
-                    if not self._stop_event.is_set():
-
-                        self._source_connected.clear()
+                        self.source_connected.set()
 
                         self.status_changed.emit(
-                            "ESP32 audio connection closed"
+                            "ESP32 audio connected"
                         )
 
-                        self._clear_queue()
+                        for chunk in response.iter_content(
+                            chunk_size=self.HTTP_CHUNK_SIZE
+                        ):
+                            if self._stop_event.is_set():
+                                break
 
-            except Exception as e:
+                            if not chunk:
+                                continue
 
-                if self._stop_event.is_set():
-                    break
+                            # now = time.monotonic()
 
-                self._source_connected.clear()
+                            # if not hasattr(self, "_last_http_chunk_time"):
+                            #     self._last_http_chunk_time = now
+                            #     self._http_chunk_count = 0
 
-                # Discard anything left from the old connection.
-                self._clear_queue()
+                            # dt = now - self._last_http_chunk_time
+                            # self._last_http_chunk_time = now
+                            # self._http_chunk_count += 1
 
-                self.status_changed.emit(
-                    f"Audio connection error: {e}"
+                            # if dt > 0.100:
+                            #     print(
+                            #         f"HTTP CHUNK DELAY: {dt * 1000:.1f} ms "
+                            #         f"size={len(chunk)}"
+                            #     )
+
+                            self._mark_audio_received()
+
+                            # print(
+                            #     f"HTTP RX: {len(chunk)} bytes "
+                            #     f"dt={dt * 1000:.1f} ms"
+                            # )                            
+
+                            pending.extend(chunk)
+
+                            # Emit exact 64 ms blocks, preserving
+                            # any incomplete block for the next read.
+                            while len(pending) >= self.RAW_BLOCK_BYTES:
+                                raw_block = bytes(
+                                    pending[:self.RAW_BLOCK_BYTES]
+                                )
+                                del pending[:self.RAW_BLOCK_BYTES]
+
+                                self._put_latest(
+                                    self.raw_queue,
+                                    (
+                                        connected_generation,
+                                        raw_block,
+                                    ),
+                                )
+
+                        if not self._stop_event.is_set():
+                            self.status_changed.emit(
+                                "ESP32 audio connection closed"
+                            )
+
+                except requests.RequestException as exc:
+                    if not self._stop_event.is_set():
+                        self.error_occurred.emit(
+                            f"Audio HTTP error: {exc}"
+                        )
+
+                except Exception as exc:
+                    if not self._stop_event.is_set():
+                        self.error_occurred.emit(
+                            f"Audio receiver error: {exc}"
+                        )
+
+                finally:
+                    # Invalidate queued blocks from the old stream.
+                    self.source_connected.clear()
+                    self._clear_queue(self.raw_queue)
+                    self._clear_queue(self.audio_queue)
+
+                if not self._stop_event.is_set():
+                    self.status_changed.emit(
+                        "Waiting for ESP32 audio reconnect"
+                    )
+                    self._stop_event.wait(self.RECONNECT_DELAY)
+
+        finally:
+            session.close()
+
+    # ---------------------------------------------------------
+    # Stage 2: PCM processing
+    # ---------------------------------------------------------
+
+    def _audio_processor(self):
+        """
+        Convert raw mono PCM blocks into processed stereo blocks.
+        This thread can perform NumPy work without blocking HTTP.
+        """
+        while not self._stop_event.is_set():
+            try:
+                generation, raw_block = self.raw_queue.get(
+                    timeout=0.1
+                )
+            except queue.Empty:
+                # print("Audio processor queue empty; waiting for data")
+                continue
+
+            if self._stop_event.is_set():
+                break
+
+            # Discard data from a previous HTTP connection.
+            if generation != self._current_generation():
+                continue
+
+            if not self._source_is_alive():
+                continue
+
+            try:
+                mono = np.frombuffer(
+                    raw_block, dtype="<i2"
                 )
 
-                # Give the ESP32/network a moment before reconnecting.
-                time.sleep(1.0)
+                if len(mono) != self.BLOCK_SAMPLES:
+                    continue
 
-    # ------------------------------------------------------------------
-    # Audio processing
-    # ------------------------------------------------------------------
+                stereo = self._process_audio(mono)
+
+                if generation != self._current_generation():
+                    continue
+
+                if not self._source_is_alive():
+                    continue
+
+                self._put_latest(
+                    self.audio_queue,
+                    (generation, stereo),
+                )
+
+            except Exception as exc:
+                self.error_occurred.emit(
+                    f"Audio processing error: {exc}"
+                )
 
     def _process_audio(self, mono):
+        """
+        Remove microphone DC offset, update the volume meter,
+        apply gain and convert mono samples to stereo.
+        """
+        samples = mono.astype(np.float32)
 
-        # Convert to float before removing the large microphone DC offset.
-        samples_float = mono.astype(np.float32)
+        # The SPH0645 stream can have a large DC offset.
+        samples -= np.mean(samples)
 
-        # Remove microphone DC offset.
-        samples_float -= np.mean(samples_float)
+        self._update_volume_level(samples)
 
-        # Meter is based on the corrected signal.
-        self._update_volume_level(
-            samples_float
-        )
+        samples *= self.gain
+        np.clip(samples, -32768, 32767, out=samples)
 
-        # Apply speaker gain.
-        output = samples_float * self.gain
+        output = samples.astype(np.int16)
 
-        output = np.clip(
-            output,
-            -32768,
-            32767,
-        ).astype(np.int16)
-
-        # HDMI device requires stereo.
         stereo = np.empty(
-            len(output) * 2,
+            len(output) * self.OUTPUT_CHANNELS,
             dtype=np.int16,
         )
-
         stereo[0::2] = output
         stereo[1::2] = output
 
         return stereo
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
     # Volume meter
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------
 
     def _update_volume_level(self, samples):
+        """
+        Calculate RMS over a 100 ms window and emit a smoothed
+        0.0-1.0 value for the UI volume bar.
+        """
+        self._level_buffer = np.concatenate(
+            (self._level_buffer, samples)
+        )
 
-        samples_float = samples / 32768.0
-
-        offset = 0
-
-        while offset < len(samples_float):
-
-            count = min(
-                len(samples_float) - offset,
-                self.LEVEL_WINDOW_SAMPLES
-                - self._level_position,
-            )
-
-            self._level_samples[
-                self._level_position:
-                self._level_position + count
-            ] = samples_float[
-                offset:
-                offset + count
+        while (
+            len(self._level_buffer)
+            >= self._level_window_samples
+        ):
+            window = self._level_buffer[
+                :self._level_window_samples
             ]
 
-            self._level_position += count
-            offset += count
+            self._level_buffer = self._level_buffer[
+                self._level_window_samples:
+            ]
 
-            if (
-                self._level_position
-                >= self.LEVEL_WINDOW_SAMPLES
-            ):
-
-                rms = np.sqrt(
-                    np.mean(
-                        self._level_samples ** 2
-                    )
-                )
-
-                rms = max(rms, 1e-9)
-
-                db = 20.0 * np.log10(rms)
-
-                MIN_DB = -60.0
-                MAX_DB = -20.0
-
-                level = (
-                    db - MIN_DB
-                ) / (
-                    MAX_DB - MIN_DB
-                )
-
-                level = float(
-                    np.clip(level, 0.0, 1.0)
-                )
-
-                with self._volume_lock:
-
-                    self.current_volume_level = level
-
-                    # Fast attack
-                    if (
-                        level
-                        > self.display_volume_level
-                    ):
-
-                        self.display_volume_level += (
-                            level
-                            - self.display_volume_level
-                        ) * 0.6
-
-                    # Slow decay
-                    else:
-
-                        self.display_volume_level += (
-                            level
-                            - self.display_volume_level
-                        ) * 0.15
-
-                    display_level = (
-                        self.display_volume_level
-                    )
-
-                self.volume_changed.emit(
-                    display_level
-                )
-
-                self._level_position = 0
-
-    # ------------------------------------------------------------------
-    # Queue management
-    # ------------------------------------------------------------------
-
-    def _put_audio(self, audio):
-
-        try:
-
-            self.audio_queue.put_nowait(
-                audio
+            rms = float(
+                np.sqrt(np.mean(window * window))
             )
 
-        except queue.Full:
+            if rms <= 0.0:
+                dbfs = self.LEVEL_MIN_DBFS
+            else:
+                dbfs = 20.0 * math.log10(rms / 32768.0)
 
-            # Drop the oldest block rather than allowing latency
-            # to build up.
-            try:
-                self.audio_queue.get_nowait()
-            except queue.Empty:
-                pass
+            level = (
+                (dbfs - self.LEVEL_MIN_DBFS)
+                / (self.LEVEL_MAX_DBFS - self.LEVEL_MIN_DBFS)
+            )
+            level = max(0.0, min(1.0, level))
 
-            try:
-                self.audio_queue.put_nowait(
-                    audio
-                )
-            except queue.Full:
-                pass
+            # Faster attack, slower decay.
+            if level > self._display_level:
+                alpha = 0.6
+            else:
+                alpha = 0.15
 
-    #     qsize = self.audio_queue.qsize()
+            self._display_level += alpha * (
+                level - self._display_level
+            )
 
-    #     if qsize <= 1:
-    #         print(
-    #             f"Audio queue LOW: {qsize} blocks "
-    #             f"({qsize * self.BLOCK_SAMPLES / self.SAMPLE_RATE:.3f}s)"
-    #         )        
+            self.volume_changed.emit(
+                float(self._display_level)
+            )
 
-    def _clear_queue(self):
+    # ---------------------------------------------------------
+    # Stage 3: ALSA playback
+    # ---------------------------------------------------------
 
-        while True:
+    def _playback(self):
+        while not self._stop_event.is_set():
+            self.status_changed.emit("Buffering audio")
 
-            try:
-                self.audio_queue.get_nowait()
+            # Wait for a live source and enough processed blocks.
+            while not self._stop_event.is_set():
+                if not self._source_is_alive():
+                    self._clear_queue(self.audio_queue)
+                    self._stop_event.wait(0.02)
+                    continue
 
-            except queue.Empty:
+                if (
+                    self.audio_queue.qsize()
+                    < self.PREBUFFER_BLOCKS
+                ):
+                    self._stop_event.wait(0.02)
+                    continue
+
                 break
 
-    # ------------------------------------------------------------------
-    # ALSA
-    # ------------------------------------------------------------------
+            if self._stop_event.is_set():
+                break
+
+            if not self._source_is_alive():
+                continue
+
+            generation = self._current_generation()
+
+            try:
+                self._start_player()
+
+                self.status_changed.emit("Audio playing")
+
+                first_block = True
+
+                while not self._stop_event.is_set():
+                    with self._player_lock:
+                        player = self.player
+
+                    if player is None:
+                        break
+
+                    return_code = player.poll()
+
+                    if return_code is not None:
+                        self.status_changed.emit(
+                            f"ALSA exited (code {return_code}); restarting"
+                        )
+                        break
+
+                    if not self._source_is_alive():
+                        self.status_changed.emit(
+                            "Audio source disconnected"
+                        )
+                        break
+
+                    try:
+                        block_generation, block = (
+                            self.audio_queue.get(timeout=0.05)
+                        )
+                    except queue.Empty:
+                        # print("Audio playback queue empty; waiting for data")
+                        # A temporary empty queue is not, by itself,
+                        # proof that the ESP32 has disconnected.
+                        continue
+
+                    if block_generation != generation:
+                        continue
+
+                    if generation != self._current_generation():
+                        break
+
+                    if not self._source_is_alive():
+                        break
+
+                    if first_block or self._need_fade_in:
+                        block = self._fade_in(block)
+                        first_block = False
+                        self._need_fade_in = False
+
+                    self._write_audio(block)
+
+            except BrokenPipeError:
+                self.status_changed.emit(
+                    "ALSA broken pipe; restarting"
+                )
+
+            except OSError as exc:
+                self.status_changed.emit(
+                    f"ALSA error; restarting: {exc}"
+                )
+
+            finally:
+                self._need_fade_in = True
+                self._stop_player()
+
+            if self._stop_event.is_set():
+                break
+
+            # Wait for the receiver to reconnect if the source died.
+            if not self._source_is_alive():
+                self._clear_queue(self.audio_queue)
+                self.status_changed.emit(
+                    "Waiting for ESP32 audio reconnect"
+                )
+
+            self._stop_event.wait(0.1)
 
     def _start_player(self):
+        command = [
+            "aplay",
+            "-D", self.alsa_device,
+            "-t", "raw",
+            "-f", "S16_LE",
+            "-c", str(self.OUTPUT_CHANNELS),
+            "-r", str(self.SAMPLE_RATE),
+            "--buffer-size=4096",
+            "--period-size=1024",
+        ]
 
         player = subprocess.Popen(
-            [
-                "aplay",
-
-                "-D",
-                self.alsa_device,
-
-                "-t",
-                "raw",
-
-                "-f",
-                "S16_LE",
-
-                "-c",
-                "2",
-
-                "-r",
-                str(self.SAMPLE_RATE),
-
-                # 4096 frames = 256 ms at 16 kHz
-                "--buffer-size=4096",
-
-                # 1024 frames = 64 ms
-                "--period-size=1024",
-            ],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -516,374 +638,92 @@ class AudioStreamer(QThread):
         threading.Thread(
             target=self._monitor_aplay,
             args=(player,),
+            name="AplayMonitor",
             daemon=True,
         ).start()
 
-    def _stop_player(self):
-
+    def _write_audio(self, samples):
         with self._player_lock:
-
             player = self.player
 
-            if player is None:
-                return
+        if player is None or player.stdin is None:
+            raise OSError("ALSA player is not running")
 
+        player.stdin.write(samples.tobytes())
+
+    def _stop_player(self):
+        with self._player_lock:
+            player = self.player
             self.player = None
 
-        try:
-
-            print(
-                "Stopping aplay:",
-                player.pid,
-                "returncode=",
-                player.poll(),
-            )
-
-        except Exception:
-            pass
+        if player is None:
+            return
 
         try:
-
-            if player.stdin:
-
+            if player.stdin is not None:
                 player.stdin.close()
-
-        except Exception:
+        except (BrokenPipeError, OSError):
             pass
 
-        try:
-
-            player.terminate()
-
-            player.wait(
-                timeout=1
-            )
-
-        except Exception:
-
+        if player.poll() is None:
             try:
+                player.terminate()
+                player.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
                 player.kill()
-            except Exception:
-                pass
+                try:
+                    player.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    pass
 
     def _monitor_aplay(self, player):
+        """
+        Drain aplay stderr so its pipe cannot fill and block it.
+        """
+        if player.stderr is None:
+            return
 
         try:
+            for line in iter(player.stderr.readline, b""):
+                if self._stop_event.is_set():
+                    break
 
-            for line in player.stderr:
-
-                text = line.decode(
-                    errors="replace"
+                message = line.decode(
+                    "utf-8", errors="replace"
                 ).strip()
 
-                if text:
+                if message:
+                    print(f"aplay: {message}")
 
-                    print(
-                        "aplay:",
-                        text
-                    )
+        except (OSError, ValueError):
+            pass
 
-        except Exception as e:
+    # ---------------------------------------------------------
+    # Fades to suppress clicks at stream transitions
+    # ---------------------------------------------------------
 
-            print(
-                "aplay monitor error:",
-                e
-            )
+    def _fade_in(self, stereo):
+        result = stereo.copy()
 
-    # ------------------------------------------------------------------
-    # Fade helpers
-    # ------------------------------------------------------------------
-
-    def _fade_in(self, samples):
-
-        samples = samples.astype(
-            np.float32
-        )
-
-        count = min(
+        frames = min(
             self.FADE_SAMPLES,
-            len(samples),
+            len(result) // self.OUTPUT_CHANNELS,
         )
+
+        if frames <= 1:
+            return result
 
         ramp = np.linspace(
-            0.0,
-            1.0,
-            count,
-            dtype=np.float32,
+            0.0, 1.0, frames, dtype=np.float32
         )
 
-        samples[:count] *= ramp
+        result_view = result[:frames * self.OUTPUT_CHANNELS]
+        result_view = result_view.reshape(
+            frames, self.OUTPUT_CHANNELS
+        )
 
-        return np.clip(
-            samples,
-            -32768,
-            32767,
+        result_view[:] = (
+            result_view.astype(np.float32) * ramp[:, None]
         ).astype(np.int16)
 
-    def _fade_out(self, samples):
-
-        samples = samples.astype(
-            np.float32
-        )
-
-        count = min(
-            self.FADE_SAMPLES,
-            len(samples),
-        )
-
-        ramp = np.linspace(
-            1.0,
-            0.0,
-            count,
-            dtype=np.float32,
-        )
-
-        samples[-count:] *= ramp
-
-        return np.clip(
-            samples,
-            -32768,
-            32767,
-        ).astype(np.int16)
-
-    # ------------------------------------------------------------------
-    # Playback
-    # ------------------------------------------------------------------
-
-    def _playback(self):
-
-        while not self._stop_event.is_set():
-
-            # --------------------------------------------------------------
-            # Wait for a genuinely live source and enough FRESH audio.
-            # --------------------------------------------------------------
-
-            self.status_changed.emit(
-                "Buffering audio"
-            )
-
-            while not self._stop_event.is_set():
-
-                # First requirement:
-                # the HTTP source must actually be alive.
-                if not self._source_is_alive():
-
-                    if self._source_connected.is_set():
-                        self._source_connected.clear()
-
-                    # Throw away anything left from the previous
-                    # connection. We only want fresh audio after reconnect.
-                    self._clear_queue()
-
-                    time.sleep(0.05)
-                    continue
-
-                # Second requirement:
-                # enough audio must have arrived from this connection.
-                if (
-                    self.audio_queue.qsize()
-                    < self.PREBUFFER_BLOCKS
-                ):
-
-                    time.sleep(0.02)
-                    continue
-
-                # Both conditions are now satisfied.
-                break
-
-            if self._stop_event.is_set():
-                break
-
-            # --------------------------------------------------------------
-            # Re-check immediately before starting ALSA.
-            #
-            # This closes the race where the ESP32 disappears between
-            # the previous test and Popen().
-            # --------------------------------------------------------------
-
-            if not self._source_is_alive():
-
-                self._clear_queue()
-                continue
-
-            self._start_player()
-
-            self.status_changed.emit(
-                "Audio playing"
-            )
-
-            first_block = True
-
-            try:
-
-                while not self._stop_event.is_set():
-
-                    # ------------------------------------------------------
-                    # Check ALSA.
-                    # ------------------------------------------------------
-
-                    with self._player_lock:
-                        player = self.player
-
-                    if player is None:
-                        break
-
-                    return_code = player.poll()
-
-                    if return_code is not None:
-
-                        self.status_changed.emit(
-                            f"ALSA exited - restarting "
-                            f"(code {return_code})"
-                        )
-
-                        break
-
-                    # ------------------------------------------------------
-                    # Get audio.
-                    # ------------------------------------------------------
-
-                    try:
-
-                        block = self.audio_queue.get(
-                            timeout=0.02
-                        )
-
-                    except queue.Empty:
-
-                        # --------------------------------------------------
-                        # No audio arrived for 250 ms.
-                        #
-                        # This is NOT automatically a disconnect.
-                        # Check whether the ESP32 is still sending data.
-                        # --------------------------------------------------
-
-                        if self._source_is_alive():
-                            continue
-
-                        # --------------------------------------------------
-                        # Genuine source loss.
-                        # --------------------------------------------------
-
-                        self._source_connected.clear()
-
-                        self._clear_queue()
-
-                        self.status_changed.emit(
-                            "Audio source disconnected"
-                        )
-
-                        break
-
-                    # ------------------------------------------------------
-                    # One last source check before writing.
-                    # ------------------------------------------------------
-
-                    if not self._source_is_alive():
-
-                        self._source_connected.clear()
-
-                        self._clear_queue()
-
-                        self.status_changed.emit(
-                            "Audio source disconnected"
-                        )
-
-                        break
-
-                    # ------------------------------------------------------
-                    # Fade in first block after reconnect.
-                    # ------------------------------------------------------
-
-                    if first_block:
-
-                        block = self._fade_in(
-                            block
-                        )
-
-                        first_block = False
-
-                    # print(
-                    #     f"QUEUE OUT {time.monotonic():.3f} "
-                    #     f"size={self.audio_queue.qsize()}"
-                    # )
-
-                    self._write_audio(block)
-
-            except BrokenPipeError:
-
-                self.status_changed.emit(
-                    "ALSA broken pipe - restarting"
-                )
-
-            except OSError as e:
-
-                self.status_changed.emit(
-                    f"ALSA error - restarting: {e}"
-                )
-
-            finally:
-
-                self._stop_player()
-
-            if self._stop_event.is_set():
-                break
-
-            # --------------------------------------------------------------
-            # We are here because either:
-            #
-            # 1. ESP32 disappeared
-            # 2. ALSA died
-            #
-            # If ESP32 disappeared, discard everything and wait for a
-            # completely fresh connection.
-            # --------------------------------------------------------------
-
-            if not self._source_is_alive():
-
-                self._source_connected.clear()
-
-                self._clear_queue()
-
-                self.status_changed.emit(
-                    "Waiting for ESP32 audio reconnect"
-                )
-
-                # Don't immediately start ALSA again.
-                time.sleep(0.1)
-
-            else:
-
-                # ALSA failed but ESP32 is still alive.
-                # Give the system a moment before restarting.
-                time.sleep(0.1)
-    # ------------------------------------------------------------------
-    # Write PCM to ALSA
-    # ------------------------------------------------------------------
-
-    def _write_audio(self, samples):
-
-        with self._player_lock:
-
-            player = self.player
-
-        if (
-            player is None
-            or player.stdin is None
-        ):
-            raise OSError(
-                "ALSA player is not running"
-            )
-
-        try:
-
-            player.stdin.write(
-                samples.tobytes()
-            )
-
-        except (
-            BrokenPipeError,
-            OSError,
-        ):
-
-            raise
+        return result
