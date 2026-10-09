@@ -317,7 +317,7 @@ class MainWindow(QWidget):
                 except Exception:
                     self.camera_up = False
             else:
-                print(f"Ping failed for host {self.host}, returncode={result.returncode}")
+                # print(f"Ping failed for host {self.host}, returncode={result.returncode}")
                 self.video_stack.setCurrentWidget(
                     self.video_error_label
                 )
@@ -364,7 +364,7 @@ class MainWindow(QWidget):
 
     def audio_status_changed(self, status):
         print(f"Audio status changed: {status}")
-        if not self.audio_streamer.is_streaming():
+        if not self.audio_streamer.source_connected.is_set():
             self.bar_graph.set_audio_status(status)
         else:
             self.bar_graph.set_audio_status("")

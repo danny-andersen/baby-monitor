@@ -12,15 +12,21 @@
 #define I2S_WS_LRCLK    2
 
 #define SAMPLE_RATE 16000
-#define BUFFER_SAMPLES 256
+#define BUFFER_SAMPLES 512
+#define AUDIO_QUEUE_BLOCKS 64
 
 WebServer server(80);
 
 i2s_chan_handle_t rx_handle;
 
-int32_t i2sBuffer[BUFFER_SAMPLES];
-int16_t pcmBuffer[BUFFER_SAMPLES];
+struct PcmBlock
+{
+    int16_t samples[BUFFER_SAMPLES];
+    uint16_t sampleCount;
+};
 
+volatile bool audioCaptureActive = false;
+volatile bool audioCaptureTaskRunning = false;
 
 // -------------------------
 // Initialise I2S
@@ -66,24 +72,18 @@ void setupI2S()
     Serial.println("I2S microphone started");
 }
 
-
-// -------------------------
-// HTTP audio stream
-// -------------------------
-void handleAudio()
+// Capture task: I2S -> PCM -> queue
+void audioCaptureTask(void *parameter)
 {
-    WiFiClient client = server.client();
+    QueueHandle_t audioQueue = (QueueHandle_t)parameter;
 
-    // Send HTTP headers manually
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-Type: audio/L16; rate=16000; channels=1");
-    client.println("Cache-Control: no-cache");
-    client.println("Connection: close");
-    client.println();
+    int32_t i2sBuffer[BUFFER_SAMPLES];
+    PcmBlock block;
 
-    Serial.println("Audio client connected");
+    uint32_t droppedBlocks = 0;
+    uint32_t readErrors = 0;
 
-    while (client.connected())
+    while (audioCaptureActive)
     {
         size_t bytesRead = 0;
 
@@ -92,59 +92,173 @@ void handleAudio()
             i2sBuffer,
             sizeof(i2sBuffer),
             &bytesRead,
-            1000
+            pdMS_TO_TICKS(50)
         );
 
         if (err != ESP_OK)
         {
-            Serial.printf("I2S read error: %d\n", err);
+            readErrors++;
             continue;
         }
 
         if (bytesRead == 0)
             continue;
 
-        size_t samples = bytesRead / sizeof(int32_t);
+        size_t samplesRead = bytesRead / sizeof(int32_t);
 
-        // int32_t minRaw = INT32_MAX;
-        // int32_t maxRaw = INT32_MIN;
+        if (samplesRead > BUFFER_SAMPLES)
+            samplesRead = BUFFER_SAMPLES;
 
-        // for (int i = 0; i < samples; i++) {
-        //     minRaw = min(minRaw, i2sBuffer[i]);
-        //     maxRaw = max(maxRaw, i2sBuffer[i]);
-        // }
+        block.sampleCount = samplesRead;
 
-        // Serial.printf("I2S raw: min=%ld max=%ld\n",
-        //             minRaw, maxRaw);
-
-        for (size_t i = 0; i < samples; i++)
+        for (size_t i = 0; i < samplesRead; i++)
         {
-            // SPH0645 -> 16-bit PCM
-            pcmBuffer[i] = (int16_t)(i2sBuffer[i] >> 14);
+            // SPH0645: convert 32-bit I2S samples to 16-bit PCM
+            block.samples[i] =
+                (int16_t)(i2sBuffer[i] >> 14);
         }
 
-        size_t bytesToSend = samples * sizeof(int16_t);
+        // Normally enqueue immediately.
+        if (xQueueSend(audioQueue, &block, 0) != pdPASS)
+        {
+            // Queue full: discard the oldest queued block.
+            PcmBlock discarded;
 
-        size_t sent = client.write(
-            (uint8_t*)pcmBuffer,
-            bytesToSend
-        );
+            if (xQueueReceive(audioQueue, &discarded, 0) == pdPASS)
+            {
+                droppedBlocks++;
+            }
 
-        if (sent != bytesToSend)
+            // Keep the newest audio where possible.
+            if (xQueueSend(audioQueue, &block, 0) != pdPASS)
+            {
+                droppedBlocks++;
+            }
+        }
+    }
+
+    Serial.printf(
+        "Capture stopped: dropped blocks=%lu, I2S errors=%lu\n",
+        (unsigned long)droppedBlocks,
+        (unsigned long)readErrors
+    );
+
+    audioCaptureTaskRunning = false;
+    vTaskDelete(nullptr);
+}
+
+// -------------------------
+// HTTP audio stream
+// -------------------------
+void handleAudio()
+{
+    WiFiClient client = server.client();
+
+    QueueHandle_t audioQueue = xQueueCreate(
+        AUDIO_QUEUE_BLOCKS,
+        sizeof(PcmBlock)
+    );
+
+    if (audioQueue == nullptr)
+    {
+        Serial.println("Failed to allocate audio queue");
+        client.stop();
+        return;
+    }
+
+    // Send HTTP headers manually, as in the existing implementation.
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: audio/L16; rate=16000; channels=1");
+    client.println("Cache-Control: no-cache");
+    client.println("Connection: close");
+    client.println();
+
+    Serial.println("Audio client connected");
+
+    audioCaptureActive = true;
+    audioCaptureTaskRunning = true;
+
+    BaseType_t taskResult = xTaskCreate(
+        audioCaptureTask,
+        "AudioCapture",
+        8192,
+        (void *)audioQueue,
+        3,
+        nullptr
+    );
+
+    if (taskResult != pdPASS)
+    {
+        audioCaptureActive = false;
+        audioCaptureTaskRunning = false;
+
+        Serial.println("Failed to start audio capture task");
+
+        vQueueDelete(audioQueue);
+        client.stop();
+        return;
+    }
+
+    PcmBlock block;
+
+    while (client.connected())
+    {
+        // Wait for captured audio without busy-waiting.
+        if (xQueueReceive(
+                audioQueue,
+                &block,
+                pdMS_TO_TICKS(100)) != pdPASS)
+        {
+            continue;
+        }
+
+        size_t bytesToSend =
+            block.sampleCount * sizeof(int16_t);
+
+        const uint8_t *data =
+            reinterpret_cast<const uint8_t *>(block.samples);
+
+        // Handle partial writes without silently losing the
+        // unsent remainder of the current block.
+        size_t totalSent = 0;
+
+        while (totalSent < bytesToSend && client.connected())
+        {
+            size_t sent = client.write(
+                data + totalSent,
+                bytesToSend - totalSent
+            );
+
+            if (sent == 0)
+                break;
+
+            totalSent += sent;
+        }
+
+        if (totalSent != bytesToSend)
         {
             Serial.printf(
-                "Short write: %d / %d\n",
-                sent,
-                bytesToSend
+                "Incomplete audio block: sent %u of %u bytes\n",
+                (unsigned)totalSent,
+                (unsigned)bytesToSend
             );
             break;
         }
-
-        yield();
     }
 
-    Serial.println("Audio client disconnected");
+    // Stop capture and wait until it has stopped using the queue.
+    audioCaptureActive = false;
+
+    while (audioCaptureTaskRunning)
+    {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    vQueueDelete(audioQueue);
+
     client.stop();
+
+    Serial.println("Audio client disconnected");
 }
 
 // -------------------------
