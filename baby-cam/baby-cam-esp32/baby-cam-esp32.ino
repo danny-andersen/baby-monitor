@@ -106,6 +106,17 @@ void handleAudio()
 
         size_t samples = bytesRead / sizeof(int32_t);
 
+        // int32_t minRaw = INT32_MAX;
+        // int32_t maxRaw = INT32_MIN;
+
+        // for (int i = 0; i < samples; i++) {
+        //     minRaw = min(minRaw, i2sBuffer[i]);
+        //     maxRaw = max(maxRaw, i2sBuffer[i]);
+        // }
+
+        // Serial.printf("I2S raw: min=%ld max=%ld\n",
+        //             minRaw, maxRaw);
+
         for (size_t i = 0; i < samples; i++)
         {
             // SPH0645 -> 16-bit PCM

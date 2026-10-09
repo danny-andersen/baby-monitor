@@ -363,6 +363,7 @@ class MainWindow(QWidget):
         self.bar_graph.set_value(value)
 
     def audio_status_changed(self, status):
+        print(f"Audio status changed: {status}")
         if not self.audio_streamer.is_streaming():
             self.bar_graph.set_audio_status(status)
         else:
