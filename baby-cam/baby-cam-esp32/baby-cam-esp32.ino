@@ -2,8 +2,6 @@
 #include <WebServer.h>
 #include <driver/i2s_std.h>
 
-#include "wifi-defs.h"
-
 // -------------------------
 // I2S pins
 // -------------------------
@@ -11,9 +9,17 @@
 #define I2S_DOUT  1
 #define I2S_WS_LRCLK    2
 
+//General Pins
+#define CURRENT_DRAIN_PIN 3  //Keeps the battery protection from turning off the power when only the ESP is running
+#define BATT_VOLTAGE_PIN 6
+
 #define SAMPLE_RATE 16000
 #define BUFFER_SAMPLES 512
 #define AUDIO_QUEUE_BLOCKS 64
+
+
+#include "wifi-defs.h"
+#include "batt_volt_sense.h"
 
 WebServer server(80);
 
@@ -27,6 +33,8 @@ struct PcmBlock
 
 volatile bool audioCaptureActive = false;
 volatile bool audioCaptureTaskRunning = false;
+
+float batt_percentage = 0.0;
 
 // -------------------------
 // Initialise I2S
@@ -273,9 +281,11 @@ void handleRoot()
     html += "<p>SPH0645LM4H</p>";
     html += "<p>Sample rate: 16000 Hz</p>";
     html += "<p>Format: 16-bit mono PCM</p>";
+    html += "<p>Batt Percentage:";
+    html += batt_percentage;
+    html += "</p>";
     html += "<p><a href=\"/audio\">Audio stream</a></p>";
     html += "</body></html>";
-
     server.send(200, "text/html", html);
 }
 
@@ -287,6 +297,13 @@ void setup()
 {
     Serial.begin(115200);
     delay(1000);
+
+    //Set up output for transistor to act as a current drain to stop battery protection circuit from turning off the power
+    //Also used as a power on indicator
+    pinMode(CURRENT_DRAIN_PIN, OUTPUT);
+    digitalWrite(CURRENT_DRAIN_PIN, 1);
+
+    analogReadResolution(12);
 
     Serial.println();
     Serial.println("ESP32-C6 I2S microphone");
@@ -323,4 +340,8 @@ void setup()
 void loop()
 {
     server.handleClient();
+    
+    batt_percentage = get_batt_percentage();
+    // Serial.printf("Batttery perc: %f\n", batt_percentage);
+    // delay(1000);
 }
