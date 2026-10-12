@@ -9,19 +9,28 @@
 #define I2S_DOUT  1
 #define I2S_WS_LRCLK    2
 
-//General Pins
-#define CURRENT_DRAIN_PIN 3  //Keeps the battery protection from turning off the power when only the ESP is running
-#define BATT_VOLTAGE_PIN 6
 
 #define SAMPLE_RATE 16000
-#define BUFFER_SAMPLES 512
+#define BUFFER_SAMPLES 1024
 #define AUDIO_QUEUE_BLOCKS 64
 
-
+#include "baby-cam-defs.h"
 #include "wifi-defs.h"
 #include "batt_volt_sense.h"
 
-WebServer server(80);
+WebServer server(8080);
+WiFiServer audioServer(8081);
+
+#define AUDIO_BUFFER_SAMPLES 32768
+#define STREAM_BLOCK_SAMPLES 512
+#define MAX_AUDIO_CLIENTS 3
+
+int16_t audioBuffer[AUDIO_BUFFER_SAMPLES];
+
+volatile uint32_t writePos = 0;
+
+TaskHandle_t captureTaskHandle = nullptr;
+TaskHandle_t audioServerTaskHandle = nullptr;
 
 i2s_chan_handle_t rx_handle;
 
@@ -34,7 +43,11 @@ struct PcmBlock
 volatile bool audioCaptureActive = false;
 volatile bool audioCaptureTaskRunning = false;
 
-float batt_percentage = 0.0;
+struct AudioClientContext
+{
+    WiFiClient client;
+    uint32_t readPos;
+};
 
 // -------------------------
 // Initialise I2S
@@ -78,20 +91,17 @@ void setupI2S()
     ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
 
     Serial.println("I2S microphone started");
+
 }
 
-// Capture task: I2S -> PCM -> queue
+// Capture task: I2S -> PCM -> BUFFER
 void audioCaptureTask(void *parameter)
 {
-    QueueHandle_t audioQueue = (QueueHandle_t)parameter;
-
     int32_t i2sBuffer[BUFFER_SAMPLES];
-    PcmBlock block;
 
-    uint32_t droppedBlocks = 0;
     uint32_t readErrors = 0;
 
-    while (audioCaptureActive)
+    while (true)
     {
         size_t bytesRead = 0;
 
@@ -100,8 +110,7 @@ void audioCaptureTask(void *parameter)
             i2sBuffer,
             sizeof(i2sBuffer),
             &bytesRead,
-            pdMS_TO_TICKS(50)
-        );
+            pdMS_TO_TICKS(50));
 
         if (err != ESP_OK)
         {
@@ -110,163 +119,158 @@ void audioCaptureTask(void *parameter)
         }
 
         if (bytesRead == 0)
+        {
             continue;
+        }
 
-        size_t samplesRead = bytesRead / sizeof(int32_t);
+        size_t samplesRead =
+            bytesRead / sizeof(int32_t);
 
         if (samplesRead > BUFFER_SAMPLES)
+        {
             samplesRead = BUFFER_SAMPLES;
-
-        block.sampleCount = samplesRead;
+        }
 
         for (size_t i = 0; i < samplesRead; i++)
         {
-            // SPH0645: convert 32-bit I2S samples to 16-bit PCM
-            block.samples[i] =
+            audioBuffer[writePos] =
                 (int16_t)(i2sBuffer[i] >> 14);
-        }
 
-        // Normally enqueue immediately.
-        if (xQueueSend(audioQueue, &block, 0) != pdPASS)
-        {
-            // Queue full: discard the oldest queued block.
-            PcmBlock discarded;
+            writePos++;
 
-            if (xQueueReceive(audioQueue, &discarded, 0) == pdPASS)
+            if (writePos >= AUDIO_BUFFER_SAMPLES)
             {
-                droppedBlocks++;
-            }
-
-            // Keep the newest audio where possible.
-            if (xQueueSend(audioQueue, &block, 0) != pdPASS)
-            {
-                droppedBlocks++;
+                writePos = 0;
             }
         }
     }
-
-    Serial.printf(
-        "Capture stopped: dropped blocks=%lu, I2S errors=%lu\n",
-        (unsigned long)droppedBlocks,
-        (unsigned long)readErrors
-    );
-
-    audioCaptureTaskRunning = false;
-    vTaskDelete(nullptr);
 }
 
-// -------------------------
-// HTTP audio stream
-// -------------------------
-void handleAudio()
+void audioClientTask(void *parameter)
 {
-    WiFiClient client = server.client();
+    AudioClientContext *ctx =
+        (AudioClientContext *)parameter;
 
-    QueueHandle_t audioQueue = xQueueCreate(
-        AUDIO_QUEUE_BLOCKS,
-        sizeof(PcmBlock)
-    );
+    WiFiClient client = ctx->client;
 
-    if (audioQueue == nullptr)
-    {
-        Serial.println("Failed to allocate audio queue");
-        client.stop();
-        return;
-    }
+    uint32_t readPos = ctx->readPos;
 
-    // Send HTTP headers manually, as in the existing implementation.
+    delete ctx;
+
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: audio/L16; rate=16000; channels=1");
     client.println("Cache-Control: no-cache");
     client.println("Connection: close");
     client.println();
 
-    Serial.println("Audio client connected");
+    D_println("Audio client connected");
 
-    audioCaptureActive = true;
-    audioCaptureTaskRunning = true;
-
-    BaseType_t taskResult = xTaskCreate(
-        audioCaptureTask,
-        "AudioCapture",
-        8192,
-        (void *)audioQueue,
-        3,
-        nullptr
-    );
-
-    if (taskResult != pdPASS)
-    {
-        audioCaptureActive = false;
-        audioCaptureTaskRunning = false;
-
-        Serial.println("Failed to start audio capture task");
-
-        vQueueDelete(audioQueue);
-        client.stop();
-        return;
-    }
-
-    PcmBlock block;
+    int16_t txBuffer[STREAM_BLOCK_SAMPLES];
 
     while (client.connected())
     {
-        // Wait for captured audio without busy-waiting.
-        if (xQueueReceive(
-                audioQueue,
-                &block,
-                pdMS_TO_TICKS(100)) != pdPASS)
+        if (!mic_power)
         {
+            //Low power - close the stream
+            break;
+        }
+
+        uint32_t currentWritePos = writePos;
+
+        uint32_t distance =
+            (currentWritePos +
+             AUDIO_BUFFER_SAMPLES -
+             readPos)
+            % AUDIO_BUFFER_SAMPLES;
+
+        if (distance > (AUDIO_BUFFER_SAMPLES - 1024))
+        {
+            D_println("Client too slow - resync");
+            readPos = currentWritePos;
             continue;
         }
 
+        size_t count = 0;
+
+        while (readPos != currentWritePos &&
+               count < STREAM_BLOCK_SAMPLES)
+        {
+            txBuffer[count++] =
+                audioBuffer[readPos];
+            readPos++;
+            if (readPos >= AUDIO_BUFFER_SAMPLES)
+            {
+                readPos = 0;
+            }
+        }
+
+        if (count == 0)
+        {
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
+        }
+
+        uint8_t *data =
+            (uint8_t *)txBuffer;
         size_t bytesToSend =
-            block.sampleCount * sizeof(int16_t);
-
-        const uint8_t *data =
-            reinterpret_cast<const uint8_t *>(block.samples);
-
-        // Handle partial writes without silently losing the
-        // unsent remainder of the current block.
+            count * sizeof(int16_t);
         size_t totalSent = 0;
 
-        while (totalSent < bytesToSend && client.connected())
+        while (totalSent < bytesToSend &&
+               client.connected())
         {
-            size_t sent = client.write(
-                data + totalSent,
-                bytesToSend - totalSent
-            );
-
+            size_t sent =
+                client.write(
+                    data + totalSent,
+                    bytesToSend - totalSent);
             if (sent == 0)
-                break;
-
+            {
+                vTaskDelay(1);
+                continue;
+            }
             totalSent += sent;
         }
-
-        if (totalSent != bytesToSend)
-        {
-            Serial.printf(
-                "Incomplete audio block: sent %u of %u bytes\n",
-                (unsigned)totalSent,
-                (unsigned)bytesToSend
-            );
-            break;
-        }
     }
-
-    // Stop capture and wait until it has stopped using the queue.
-    audioCaptureActive = false;
-
-    while (audioCaptureTaskRunning)
-    {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    vQueueDelete(audioQueue);
-
     client.stop();
+    D_println("Audio client disconnected");
+    vTaskDelete(nullptr);
+}
 
-    Serial.println("Audio client disconnected");
+void audioServerTask(void *parameter)
+{
+    audioServer.begin();
+
+    D_println("Audio server started");
+
+    while (true)
+   {
+        WiFiClient client = audioServer.available();
+        if (client && mic_power)
+        {
+            //Only start a new client if mic is powered on
+            D_println("New audio listener");
+
+            AudioClientContext *ctx =
+                new AudioClientContext;
+
+            ctx->client = client;
+
+            //
+            // Start new listeners "live"            
+            ctx->readPos = writePos;
+
+            xTaskCreate(
+                audioClientTask,
+                "AudioClient",
+                8192,
+                ctx,
+                2,
+                nullptr);
+        }
+
+       vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    audioServer.close();
 }
 
 // -------------------------
@@ -274,19 +278,31 @@ void handleAudio()
 // -------------------------
 void handleRoot()
 {
-    String html;
+    String json;
 
-    html += "<html><body>";
-    html += "<h1>ESP32-C6 Microphone</h1>";
-    html += "<p>SPH0645LM4H</p>";
-    html += "<p>Sample rate: 16000 Hz</p>";
-    html += "<p>Format: 16-bit mono PCM</p>";
-    html += "<p>Batt Percentage:";
-    html += batt_percentage;
-    html += "</p>";
-    html += "<p><a href=\"/audio\">Audio stream</a></p>";
-    html += "</body></html>";
-    server.send(200, "text/html", html);
+    json += "{";
+    json += "battery: ";
+    json += batt_percentage;
+    json += ",";
+    json += "video: ";
+    json += video_power;
+    json += ",";
+    json += "microphone: ";
+    json += mic_power;
+    // json += ","
+    json += "}";
+
+    // html += "<html><body>";
+    // html += "<h1>ESP32-C6 Microphone</h1>";
+    // html += "<p>SPH0645LM4H</p>";
+    // html += "<p>Sample rate: 16000 Hz</p>";
+    // html += "<p>Format: 16-bit mono PCM</p>";
+    // html += "<p>Batt Percentage:";
+    // html += batt_percentage;
+    // html += "</p>";
+    // html += "<p><a href=\"/audio\">Audio stream</a></p>";
+    // html += "</body></html>";
+    server.send(200, "text/json", json);
 }
 
 
@@ -295,42 +311,59 @@ void handleRoot()
 // -------------------------
 void setup()
 {
-    Serial.begin(115200);
+    D_SerialBegin(115200);
     delay(1000);
 
     //Set up output for transistor to act as a current drain to stop battery protection circuit from turning off the power
-    //Also used as a power on indicator
     pinMode(CURRENT_DRAIN_PIN, OUTPUT);
-    digitalWrite(CURRENT_DRAIN_PIN, 1);
+    digitalWrite(CURRENT_DRAIN_PIN, 0);
+
+    pinMode(PI_POWER_PIN, OUTPUT);
+    digitalWrite(PI_POWER_PIN, 0);
 
     analogReadResolution(12);
 
-    Serial.println();
-    Serial.println("ESP32-C6 I2S microphone");
+    D_println();
+    D_println("ESP32-C6 I2S microphone");
 
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-    Serial.print("Connecting to WiFi");
+    D_print("Connecting to WiFi");
 
     while (WiFi.status() != WL_CONNECTED)
     {
         delay(500);
-        Serial.print(".");
+        D_print(".");
     }
 
-    Serial.println();
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+    D_println();
+    D_print("IP address: ");
+    D_println(WiFi.localIP());
 
     setupI2S();
 
+    xTaskCreate(
+        audioCaptureTask,
+        "AudioCapture",
+        8192,
+        nullptr,
+        3,
+        &captureTaskHandle);
+
+    xTaskCreate(
+        audioServerTask,
+        "AudioServer",
+        8192,
+        nullptr,
+        2,
+        &audioServerTaskHandle);
+
     server.on("/", HTTP_GET, handleRoot);
-    server.on("/audio", HTTP_GET, handleAudio);
 
     server.begin();
 
-    Serial.println("HTTP server started");
+    D_println("HTTP server started");
 }
 
 
@@ -339,9 +372,12 @@ void setup()
 // -------------------------
 void loop()
 {
-    server.handleClient();
-    
-    batt_percentage = get_batt_percentage();
-    // Serial.printf("Batttery perc: %f\n", batt_percentage);
+    //Check on power situation
+    power_control();
+    if (mic_power) {
+        server.handleClient();
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+    // D_printf("Batttery perc: %f\n", batt_percentage);
     // delay(1000);
 }

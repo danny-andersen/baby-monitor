@@ -105,7 +105,7 @@ void power_control() {
         //Turn off power drain circuit as turning on PI
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         digitalWrite(PI_POWER_PIN, 1);
-        video_state = 1;
+        video_power = 1;
         mic_power = 1;
     }
     if (batt_percentage <= VIDEO_OFF_THRESHOLD && batt_percentage >= POWER_LOW_THRESHOLD)
@@ -113,7 +113,7 @@ void power_control() {
         //Turn PI off, as battery is running low 
         //TODO Send power down instruction to PI
         digitalWrite(PI_POWER_PIN, 0);
-        video_state = 0;
+        video_power = 0;
         //Turn on power drain circuit as turning off PI
         digitalWrite(CURRENT_DRAIN_PIN, 1);
         mic_power = 1;
@@ -124,7 +124,5 @@ void power_control() {
         //This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         mic_power = 0;
-    }
-
     }
 }
