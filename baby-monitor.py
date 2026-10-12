@@ -364,10 +364,7 @@ class MainWindow(QWidget):
 
     def audio_status_changed(self, status):
         print(f"Audio status changed: {status}")
-        if not self.audio_streamer.source_connected.is_set():
-            self.bar_graph.set_audio_status(status)
-        else:
-            self.bar_graph.set_audio_status("")
+        self.bar_graph.set_audio_status(status)
             
     # ==================================================
     # Audio
@@ -379,18 +376,8 @@ class MainWindow(QWidget):
 
     def toggle_audio(self):
         self.audio_enabled = not self.audio_enabled
+        self.audio_streamer.audio_output_enabled = self.audio_enabled
         self.update_audio_button()
-
-        self.on_audio_changed(self.audio_enabled)
-
-    def on_audio_changed(self, enabled: bool):
-        if self.audio_streamer.is_streaming():
-            self.audio_streamer.stop_stream()
-            self.audio_toggle_button.setText("Start")
-
-        else:
-            self.audio_streamer.start_stream()
-            self.audio_toggle_button.setText("Stop")
 
     # ==================================================
     # Video

@@ -71,6 +71,8 @@ class AudioStreamer(QThread):
         self.audio_url = audio_url
         self.alsa_device = alsa_device
         self.gain = float(gain)
+        
+        self.audio_output_enabled = True
 
         self._stop_event = threading.Event()
         self.source_connected = threading.Event()
@@ -253,7 +255,7 @@ class AudioStreamer(QThread):
 
                 try:
                     self.status_changed.emit(
-                        "Connecting to ESP32 audio"
+                        "Connecting to audio"
                     )
 
                     with session.get(
@@ -276,9 +278,14 @@ class AudioStreamer(QThread):
 
                         self.source_connected.set()
 
-                        self.status_changed.emit(
-                            "ESP32 audio connected"
-                        )
+                        if (not self.audio_output_enabled): 
+                            self.status_changed.emit(
+                                "Audio off"
+                            )
+                        else:
+                            self.status_changed.emit(
+                                "Audio connected"
+                            )
 
                         for chunk in response.iter_content(
                             chunk_size=self.HTTP_CHUNK_SIZE
@@ -331,14 +338,15 @@ class AudioStreamer(QThread):
                                 )
 
                         if not self._stop_event.is_set():
+                            self.volume_changed.emit(0)
                             self.status_changed.emit(
-                                "ESP32 audio connection closed"
+                                "Audio connection closed"
                             )
 
                 except requests.RequestException as exc:
                     if not self._stop_event.is_set():
                         self.error_occurred.emit(
-                            f"Audio HTTP error: {exc}"
+                            f"Audio connection error: {exc}"
                         )
 
                 except Exception as exc:
@@ -348,6 +356,7 @@ class AudioStreamer(QThread):
                         )
 
                 finally:
+                    self.volume_changed.emit(0)
                     # Invalidate queued blocks from the old stream.
                     self.source_connected.clear()
                     self._clear_queue(self.raw_queue)
@@ -355,11 +364,12 @@ class AudioStreamer(QThread):
 
                 if not self._stop_event.is_set():
                     self.status_changed.emit(
-                        "Waiting for ESP32 audio reconnect"
+                        "Waiting for audio"
                     )
                     self._stop_event.wait(self.RECONNECT_DELAY)
 
         finally:
+            self.volume_changed.emit(0)
             session.close()
 
     # ---------------------------------------------------------
@@ -484,9 +494,9 @@ class AudioStreamer(QThread):
 
             # Faster attack, slower decay.
             if level > self._display_level:
-                alpha = 0.6
+                alpha = 0.8
             else:
-                alpha = 0.15
+                alpha = 0.4
 
             self._display_level += alpha * (
                 level - self._display_level
@@ -502,7 +512,10 @@ class AudioStreamer(QThread):
 
     def _playback(self):
         while not self._stop_event.is_set():
-            self.status_changed.emit("Buffering audio")
+            if not self.audio_output_enabled:
+                # print("Audio output disabled; waiting for enable")
+                continue
+            self.status_changed.emit("Starting audio")
 
             # Wait for a live source and enough processed blocks.
             while not self._stop_event.is_set():
@@ -536,6 +549,11 @@ class AudioStreamer(QThread):
                 first_block = True
 
                 while not self._stop_event.is_set():
+                    if not self.audio_output_enabled:
+                        print("Audio output disabled; stopping player")
+                        self.status_changed.emit("Audio off")
+                        self._stop_player()
+                        break
                     with self._player_lock:
                         player = self.player
 
@@ -546,7 +564,7 @@ class AudioStreamer(QThread):
 
                     if return_code is not None:
                         self.status_changed.emit(
-                            f"ALSA exited (code {return_code}); restarting"
+                            "Audio Player exited"
                         )
                         break
 
@@ -584,12 +602,12 @@ class AudioStreamer(QThread):
 
             except BrokenPipeError:
                 self.status_changed.emit(
-                    "ALSA broken pipe; restarting"
+                    "Audio broken pipe"
                 )
 
             except OSError as exc:
                 self.status_changed.emit(
-                    f"ALSA error; restarting: {exc}"
+                    f"Audio error; restarting: {exc}"
                 )
 
             finally:
@@ -603,7 +621,7 @@ class AudioStreamer(QThread):
             if not self._source_is_alive():
                 self._clear_queue(self.audio_queue)
                 self.status_changed.emit(
-                    "Waiting for ESP32 audio reconnect"
+                    "Waiting for Audio reconnect"
                 )
 
             self._stop_event.wait(0.1)
@@ -632,7 +650,7 @@ class AudioStreamer(QThread):
             self.player = player
 
         self.status_changed.emit(
-            f"ALSA started (pid {player.pid})"
+            f"Audio Player started"
         )
 
         threading.Thread(
@@ -647,7 +665,7 @@ class AudioStreamer(QThread):
             player = self.player
 
         if player is None or player.stdin is None:
-            raise OSError("ALSA player is not running")
+            raise OSError("Audio Player is not running")
 
         player.stdin.write(samples.tobytes())
 
