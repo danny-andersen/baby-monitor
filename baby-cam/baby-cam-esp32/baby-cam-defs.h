@@ -1,4 +1,4 @@
-#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_SerialBegin(...) Serial.begin(__VA_ARGS__)
@@ -21,7 +21,7 @@
 
 //Power thresholds
 #define VIDEO_ON_THRESHOLD 70
-#define VIDEO_OFF_THRESHOLD 40
+#define VIDEO_OFF_THRESHOLD 35
 #define POWER_LOW_THRESHOLD 20
 
 int current_batt_perc = 0;  // Currently calculated battery percentage
