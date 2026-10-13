@@ -1,4 +1,4 @@
-#define DIVIDER_SCALE_FACTOR 1.5  //Resistor divider reduces measured voltage by this factor 
+#define DIVIDER_SCALE_FACTOR 1.5 // Resistor divider reduces measured voltage by this factor
 
 // Lookup table for a standard 3.7V LiPo/Li-ion battery (fully charged at 4.2V)
 // Index 0 corresponds to 0%, Index 100 corresponds to 100%
@@ -19,36 +19,45 @@
 // Lookup table for a standard 3.7V LiPo/Li-ion battery (fully charged at 4.2V)
 // Index 0 corresponds to 0%, Index 10 corresponds to 100%
 const float lipo_voltage_table[] PROGMEM = {
-    3.0, // 0%
-    3.1, // 10%
-    3.2, // 20%
-    3.4, // 30%
-    3.5, // 40%
-    3.7, // 50%
-    3.9, // 60% 
-    4.0, // 70%
+    3.0,  // 0%
+    3.1,  // 10%
+    3.2,  // 20%
+    3.4,  // 30%
+    3.5,  // 40%
+    3.7,  // 50%
+    3.9,  // 60%
+    4.0,  // 70%
     4.05, // 80%
-    4.1, // 90%
-    4.2  // 100%
+    4.1,  // 90%
+    4.2   // 100%
 };
 
 const int LIPO_TABLE_SIZE = sizeof(lipo_voltage_table) / sizeof(lipo_voltage_table[0]);
-const int SCALE_FACTOR = 100/(LIPO_TABLE_SIZE-1);
+const int SCALE_FACTOR = 100 / (LIPO_TABLE_SIZE - 1);
 
-const int numReadings = 30;    // Number of readings for the 30-second average
-unsigned long previousMillis = 0; 
-const long interval = 1000;    // Interval of 1 second (1000 ms)
-int readings[numReadings];     // Array to store the last 30 readings
-int readIndex = 0;             // Index of the current reading
-long total = 0;                // Running total of the readings
-bool first_reading = true;     // Readings after boot are zero
-long average = 0;              // The calculated average
+const int numReadings = 30; // Number of readings for the 30-second average
+unsigned long previousMillis = 0;
+const long interval = 1000; // Interval of 1 second (1000 ms)
+int readings[numReadings];  // Array to store the last 30 readings
+int readIndex = 0;          // Index of the current reading
+long total = 0;             // Running total of the readings
+bool first_reading = true;  // Readings after boot are zero
+long average = 0;           // The calculated average
 
-void batt_volt_setup() {
-    //Set resolution of ADC to match C6
+void power_setup()
+{
+    // Set up output for transistor to act as a current drain to stop battery protection circuit from turning off the power
+    pinMode(CURRENT_DRAIN_PIN, OUTPUT);
+    digitalWrite(CURRENT_DRAIN_PIN, 0);
+
+    pinMode(PI_POWER_PIN, OUTPUT);
+    digitalWrite(PI_POWER_PIN, 0);
+
+    // Set resolution of ADC to match C6
     analogReadResolution(12);
-    //Zero reading array
-    for (int i=0; i<numReadings; i++) {
+    // Zero reading array
+    for (int i = 0; i < numReadings; i++)
+    {
         readings[i] = 0;
     }
 }
@@ -58,25 +67,27 @@ int get_lipo_percentage(float voltage)
 {
     // Read boundary thresholds
     float min_v = pgm_read_float(&lipo_voltage_table[0]);
-    float max_v = pgm_read_float(&lipo_voltage_table[LIPO_TABLE_SIZE-1]);
+    float max_v = pgm_read_float(&lipo_voltage_table[LIPO_TABLE_SIZE - 1]);
 
     if (voltage <= min_v)
         return 0;
     if (voltage >= max_v)
         return 100;
 
-  // Search the lookup table to find the bounding indices
-  for (int i = 0; i < LIPO_TABLE_SIZE; i++) {
-    float v_low = pgm_read_float(&lipo_voltage_table[i]);
-    float v_high = pgm_read_float(&lipo_voltage_table[i + 1]);
-    
-    if (voltage >= v_low && voltage <= v_high) {
-      // Linearly interpolate between the two array points for precise decimals
-      float fraction = (voltage - v_low) / (v_high - v_low);
-      return round((i + fraction)*SCALE_FACTOR);
+    // Search the lookup table to find the bounding indices
+    for (int i = 0; i < LIPO_TABLE_SIZE; i++)
+    {
+        float v_low = pgm_read_float(&lipo_voltage_table[i]);
+        float v_high = pgm_read_float(&lipo_voltage_table[i + 1]);
+
+        if (voltage >= v_low && voltage <= v_high)
+        {
+            // Linearly interpolate between the two array points for precise decimals
+            float fraction = (voltage - v_low) / (v_high - v_low);
+            return round((i + fraction) * SCALE_FACTOR);
+        }
     }
-  }
-  return 0;
+    return 0;
 }
 
 void get_batt_percentage()
@@ -84,7 +95,8 @@ void get_batt_percentage()
     unsigned long currentMillis = millis();
 
     // Check if 1 second has elapsed
-    if (currentMillis - previousMillis >= interval) {
+    if (currentMillis - previousMillis >= interval)
+    {
         previousMillis = currentMillis;
         // Subtract the oldest reading from the total
         total = total - readings[readIndex];
@@ -94,9 +106,12 @@ void get_batt_percentage()
         // Add the new reading to the total
         total = total + readings[readIndex];
 
-        if (first_reading && readIndex < numReadings) {
+        if (first_reading && readIndex < numReadings)
+        {
             average = total / (readIndex + 1);
-        } else {
+        }
+        else
+        {
             // Calculate the average
             average = total / numReadings;
         }
@@ -104,20 +119,22 @@ void get_batt_percentage()
         // Advance to the next position in the array (wrap around if at the end)
         readIndex = (readIndex + 1) % numReadings;
 
-        if (first_reading && readIndex == 0) first_reading = false;
+        if (first_reading && readIndex == 0)
+            first_reading = false;
 
-        current_batt_volts = 4.0 * DIVIDER_SCALE_FACTOR * average/4095;
+        current_batt_volts = 4.0 * DIVIDER_SCALE_FACTOR * average / 4095;
         current_batt_perc = get_lipo_percentage(current_batt_volts);
         // D_printf("Batt Voltage: %f, Perc: %d%%\n", current_batt_volts, current_batt_perc);
     }
 }
 
-void power_control() {
+void power_control()
+{
     get_batt_percentage();
     if (current_batt_perc >= VIDEO_ON_THRESHOLD)
     {
-        //Turn PI on, as battery voltage sufficient 
-        //Turn off power drain circuit as turning on PI
+        // Turn PI on, as battery voltage sufficient
+        // Turn off power drain circuit as turning on PI
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         digitalWrite(PI_POWER_PIN, 1);
         video_power = 1;
@@ -126,8 +143,8 @@ void power_control() {
     }
     if (current_batt_perc <= VIDEO_OFF_THRESHOLD)
     {
-        //Turn PI off, as battery is running low 
-        //TODO Send power down instruction to PI
+        // Turn PI off, as battery is running low
+        // TODO Send power down instruction to PI
         digitalWrite(PI_POWER_PIN, 0);
         video_power = 0;
         mic_power = 1;
@@ -135,17 +152,17 @@ void power_control() {
     }
     if (!video_power && current_batt_perc >= POWER_LOW_THRESHOLD)
     {
-        //Turn on power drain circuit PI is off
+        // Turn on power drain circuit PI is off
         digitalWrite(CURRENT_DRAIN_PIN, 1);
         mic_power = 1;
         // D_println("PI off, Drain on");
     }
     if (current_batt_perc <= POWER_LOW_THRESHOLD)
     {
-        //Turn off power drain circuit. 
-        //This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
+        // Turn off power drain circuit.
+        // This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         mic_power = 0;
         // D_println("Drain off");
-   }
+    }
 }
