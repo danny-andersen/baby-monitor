@@ -281,8 +281,11 @@ void handleRoot()
     String json;
 
     json += "{";
-    json += "battery: ";
-    json += batt_percentage;
+    json += "battery_volts: ";
+    json += current_batt_volts;
+    json += ",";
+    json += "battery_perc: ";
+    json += current_batt_perc;
     json += ",";
     json += "video: ";
     json += video_power;

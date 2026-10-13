@@ -24,6 +24,7 @@
 #define VIDEO_OFF_THRESHOLD 40
 #define POWER_LOW_THRESHOLD 20
 
-int batt_percentage = 0;
+int current_batt_perc = 0;  // Currently calculated battery percentage
+float current_batt_volts = 0.0;
 bool video_power = 0; //Video off until PI is powered on
 bool mic_power = 1; //Mic power is always on until power below low threshold

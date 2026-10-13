@@ -43,8 +43,6 @@ int readIndex = 0;             // Index of the current reading
 long total = 0;                // Running total of the readings
 bool first_reading = true;     // Readings after boot are zero
 long average = 0;              // The calculated average
-int current_batt_perc = 0;  // Currently calculated battery percentage
-
 
 void batt_volt_setup() {
     //Set resolution of ADC to match C6
@@ -81,7 +79,7 @@ int get_lipo_percentage(float voltage)
   return 0;
 }
 
-float get_batt_percentage()
+void get_batt_percentage()
 {
     unsigned long currentMillis = millis();
 
@@ -108,16 +106,15 @@ float get_batt_percentage()
 
         if (first_reading && readIndex == 0) first_reading = false;
 
-        float batt_from_raw = 4.0 * DIVIDER_SCALE_FACTOR * average/4095;
-        current_batt_perc = get_lipo_percentage(batt_from_raw);
-        D_printf("Batt Voltage: %f, Perc: %d%%\n", batt_from_raw, current_batt_perc);
+        current_batt_volts = 4.0 * DIVIDER_SCALE_FACTOR * average/4095;
+        current_batt_perc = get_lipo_percentage(current_batt_volts);
+        // D_printf("Batt Voltage: %f, Perc: %d%%\n", current_batt_volts, current_batt_perc);
     }
-    return current_batt_perc;
 }
 
 void power_control() {
-    batt_percentage = get_batt_percentage();
-    if (batt_percentage >= VIDEO_ON_THRESHOLD)
+    get_batt_percentage();
+    if (current_batt_perc >= VIDEO_ON_THRESHOLD)
     {
         //Turn PI on, as battery voltage sufficient 
         //Turn off power drain circuit as turning on PI
@@ -127,7 +124,7 @@ void power_control() {
         mic_power = 1;
         // D_println("PI on, Drain off");
     }
-    if (batt_percentage <= VIDEO_OFF_THRESHOLD)
+    if (current_batt_perc <= VIDEO_OFF_THRESHOLD)
     {
         //Turn PI off, as battery is running low 
         //TODO Send power down instruction to PI
@@ -136,14 +133,14 @@ void power_control() {
         mic_power = 1;
         // D_println("PI off");
     }
-    if (!video_power && batt_percentage >= POWER_LOW_THRESHOLD)
+    if (!video_power && current_batt_perc >= POWER_LOW_THRESHOLD)
     {
         //Turn on power drain circuit PI is off
         digitalWrite(CURRENT_DRAIN_PIN, 1);
         mic_power = 1;
         // D_println("PI off, Drain on");
     }
-    if (batt_percentage <= POWER_LOW_THRESHOLD)
+    if (current_batt_perc <= POWER_LOW_THRESHOLD)
     {
         //Turn off power drain circuit. 
         //This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
