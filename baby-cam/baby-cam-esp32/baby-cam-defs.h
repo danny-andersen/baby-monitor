@@ -20,10 +20,10 @@
 #define PI_POWER_PIN 14 // Controls power to PI via a relay: low is on, high is off
 
 //Power thresholds
-#define VIDEO_ON_THRESHOLD 55
+#define VIDEO_ON_THRESHOLD 70
 #define VIDEO_OFF_THRESHOLD 40
 #define POWER_LOW_THRESHOLD 20
 
-float batt_percentage = 0.0;
+int batt_percentage = 0;
 bool video_power = 0; //Video off until PI is powered on
 bool mic_power = 1; //Mic power is always on until power below low threshold

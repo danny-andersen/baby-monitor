@@ -321,7 +321,7 @@ void setup()
     pinMode(PI_POWER_PIN, OUTPUT);
     digitalWrite(PI_POWER_PIN, 0);
 
-    analogReadResolution(12);
+    batt_volt_setup();
 
     D_println();
     D_println("ESP32-C6 I2S microphone");
@@ -374,9 +374,7 @@ void loop()
 {
     //Check on power situation
     power_control();
-    if (mic_power) {
-        server.handleClient();
-    }
+    server.handleClient();
     vTaskDelay(pdMS_TO_TICKS(10));
     // D_printf("Batttery perc: %f\n", batt_percentage);
     // delay(1000);

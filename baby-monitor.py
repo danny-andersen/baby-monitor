@@ -337,7 +337,7 @@ class MainWindow(QWidget):
         return error not in down_errors
     
     def on_camera_check_finished(self):
-        print(f"Camera check finished, error={self.reply.error()} camera_up={self.camera_up}")
+        # print(f"Camera check finished, error={self.reply.error()} camera_up={self.camera_up}")
         if self.camera_available(self.reply.error()):
             if self.camera_up == False:
                 print("Camera is back up, reloading video feed")
