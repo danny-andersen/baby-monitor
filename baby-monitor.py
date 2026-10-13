@@ -138,29 +138,22 @@ class MainWindow(QWidget):
         self.bar_graph = BarGraphWidget()
 
         self.audio_button = QPushButton()
-        self.video_button = QPushButton()
         self.shutdown_button = QPushButton()
 
         self.update_audio_button()
-        self.update_video_button()
 
         self.shutdown_button.setText("Shutdown")
         
         self.audio_button.clicked.connect(self.toggle_audio)
-        self.video_button.clicked.connect(self.toggle_video)
         self.shutdown_button.clicked.connect(self.shutdown_requested)
 
-        self.audio_button.setMinimumHeight(80)
-        self.video_button.setMinimumHeight(80)
-        self.shutdown_button.setMinimumHeight(80)
+        self.audio_button.setMinimumHeight(60)
+        self.shutdown_button.setMinimumHeight(60)
 
         self.audio_button.setStyleSheet(
             "font-size: 20px; font-weight: bold;"
         )
 
-        self.video_button.setStyleSheet(
-            "font-size: 20px; font-weight: bold;"
-        )
         self.shutdown_button.setStyleSheet("""
             QPushButton {
             background-color: #b00000;
@@ -172,7 +165,6 @@ class MainWindow(QWidget):
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.bar_graph, stretch=1)
         left_layout.addWidget(self.audio_button)
-        left_layout.addWidget(self.video_button)
         left_layout.addWidget(self.shutdown_button)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(0)
@@ -382,23 +374,6 @@ class MainWindow(QWidget):
     # ==================================================
     # Video
     # ==================================================
-
-    def update_video_button(self):
-        state = "ON" if self.video_enabled else "OFF"
-        self.video_button.setText(f"Video {state}")
-
-    def toggle_video(self):
-        self.video_enabled = not self.video_enabled
-        self.update_video_button()
-
-        self.on_video_changed(self.video_enabled)
-
-    def on_video_changed(self, enabled: bool):
-        """
-        Extend this function with whatever action
-        you want to happen when Video changes.
-        """
-        print(f"Video enabled = {enabled}")
 
     def shutdown_requested(self):
 
