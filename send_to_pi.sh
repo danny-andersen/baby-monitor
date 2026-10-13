@@ -1,1 +1,1 @@
-scp url.txt baby-monitor.py audio_streamer.py baby-monitor:monitor/
+scp url.txt baby-monitor.py audio_streamer.py monitor-baby-cam.sh start-baby-monitor.sh baby-monitor.service create_monitor_service.sh baby-monitor:monitor/
