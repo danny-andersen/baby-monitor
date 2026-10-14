@@ -128,6 +128,19 @@ void get_batt_percentage()
     }
 }
 
+void deep_sleep() 
+{
+    // Disconnect from the current network
+    WiFi.disconnect(true);
+    
+    // Turn off the Wi-Fi radio completely
+    WiFi.mode(WIFI_OFF);    
+    
+    D_println("Going to sleep now");
+    D_flush();
+    esp_deep_sleep_start();    
+}
+
 void power_control()
 {
     get_batt_percentage();
@@ -163,6 +176,9 @@ void power_control()
         // This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         mic_power = 0;
+        //Turn everything off
+        deep_sleep();
         // D_println("Drain off");
     }
 }
+

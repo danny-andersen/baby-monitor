@@ -15,16 +15,16 @@ void handleRoot()
     String json;
 
     json += "{";
-    json += "battery_volts: ";
+    json += "\"battery_volts\": ";
     json += current_batt_volts;
     json += ",";
-    json += "battery_perc: ";
+    json += "\"battery_perc\": ";
     json += current_batt_perc;
     json += ",";
-    json += "video: ";
+    json += "\"video\": ";
     json += video_power;
     json += ",";
-    json += "microphone: ";
+    json += "\"microphone\": ";
     json += mic_power;
     // json += ","
     json += "}";
@@ -75,6 +75,13 @@ void setup()
     server.begin();
 
     D_println("HTTP server started");
+
+    /*
+    First we configure the wake up source
+    We set our ESP32 to wake up every 5 seconds
+    */
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+    D_println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
 }
 
 // -------------------------
