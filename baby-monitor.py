@@ -25,6 +25,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from audio_streamer import AudioStreamer
+from battery_status import BatteryIcon, BatteryStatusWorker
 
 
 class BarGraphWidget(QWidget):
@@ -109,6 +110,8 @@ class MainWindow(QWidget):
         self.video_enabled = True
         self.camera_up = False
 
+        self.setStyleSheet("background-color: white;")
+        
         # self.setWindowTitle("Baby Monitor")
         # No title bar, border, minimize/maximize buttons
         self.setWindowFlags(
@@ -138,6 +141,8 @@ class MainWindow(QWidget):
         self.bar_graph = BarGraphWidget()
 
         self.audio_button = QPushButton()
+        self.icon = BatteryIcon()
+
         self.shutdown_button = QPushButton()
 
         self.update_audio_button()
@@ -164,6 +169,7 @@ class MainWindow(QWidget):
         
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.bar_graph, stretch=1)
+        left_layout.addWidget(self.icon)
         left_layout.addWidget(self.audio_button)
         left_layout.addWidget(self.shutdown_button)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -252,6 +258,8 @@ class MainWindow(QWidget):
         )        
 
         self.audio_streamer.start_stream()
+
+        self.start_battery_polling()
 
     def on_load_started(self):
         print("Video stream started")
@@ -372,7 +380,7 @@ class MainWindow(QWidget):
         self.update_audio_button()
 
     # ==================================================
-    # Video
+    # Shutdown
     # ==================================================
 
     def shutdown_requested(self):
@@ -395,12 +403,56 @@ class MainWindow(QWidget):
         subprocess.Popen(
             ["sudo", "shutdown", "-h", "now"]
         )
+ 
+    # ==================================================
+    # Remote Battery status
+    # ==================================================
+        
+    def start_battery_polling(self):
+        # Fetch immediately, then once every minute
+        self.battery_timer = QTimer(self)
+        self.battery_timer.timeout.connect(
+            self.fetch_battery_status
+        )
+        self.fetch_battery_status()
+        self.battery_timer.start(60_000)
+
+
+    def fetch_battery_status(self):
+        # Avoid overlapping requests
+        if hasattr(self, "battery_worker"):
+            if self.battery_worker.isRunning():
+                return
+
+        self.battery_worker = BatteryStatusWorker(
+            self.status_url, self
+        )
+        self.battery_worker.battery_updated.connect(
+            self.update_battery
+        )
+        self.battery_worker.status_error.connect(
+            self.battery_status_error
+        )
+        self.battery_worker.start()
+
+
+    def update_battery(self, percentage):
+        self.icon.set_percentage(percentage)
+
+    def battery_status_error(self, message):
+        print(f"Battery status request failed: {message}")
+
+    # ==================================================
+    # URL loader
+    # ==================================================
+
 
     def load_urls_from_file(self):
 
         self.camera_url = ""
         self.control_url = ""
         self.audio_url = ""
+        self.status_url = ""
         try:
             with open("url.txt", "r", encoding="utf-8") as f:
 
@@ -424,10 +476,12 @@ class MainWindow(QWidget):
                         self.control_url = url
                     elif label == "audio":
                         self.audio_url = url
-
+                    elif label == "status":
+                        self.status_url = url
             print(f"Camera URL : {self.camera_url}")
             print(f"Control URL: {self.control_url}")
             print(f"Audio URL: {self.audio_url}")
+            print(f"Status URL: {self.status_url}")
 
         except Exception as e:
             print(f"Error reading url.txt: {e}")
