@@ -22,7 +22,7 @@
 #define PI_POWER_PIN 14 // Controls power to PI via a relay: low is on, high is off
 
 //Power thresholds
-#define VIDEO_ON_THRESHOLD 70
+#define VIDEO_ON_THRESHOLD 60
 #define VIDEO_OFF_THRESHOLD 35
 #define POWER_LOW_THRESHOLD 20
 

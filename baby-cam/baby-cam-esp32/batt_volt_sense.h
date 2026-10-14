@@ -1,5 +1,3 @@
-#define DIVIDER_SCALE_FACTOR 1.5 // Resistor divider reduces measured voltage by this factor
-
 // Lookup table for a standard 3.7V LiPo/Li-ion battery (fully charged at 4.2V)
 // Index 0 corresponds to 0%, Index 100 corresponds to 100%
 // const float lipo_voltage_table[] PROGMEM = {
@@ -32,8 +30,11 @@ const float lipo_voltage_table[] PROGMEM = {
     4.2   // 100%
 };
 
+#define DIVIDER_SCALE_FACTOR 1.53 // Resistor divider reduces measured voltage by this factor
+
 const int LIPO_TABLE_SIZE = sizeof(lipo_voltage_table) / sizeof(lipo_voltage_table[0]);
 const int SCALE_FACTOR = 100 / (LIPO_TABLE_SIZE - 1);
+
 
 const int numReadings = 30; // Number of readings for the 30-second average
 unsigned long previousMillis = 0;
