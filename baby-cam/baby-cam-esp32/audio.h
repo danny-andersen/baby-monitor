@@ -1,4 +1,3 @@
-#include <WebServer.h>
 #include <driver/i2s_std.h>
 
 // -------------------------
