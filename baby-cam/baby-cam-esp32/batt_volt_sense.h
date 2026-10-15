@@ -35,7 +35,6 @@ const float lipo_voltage_table[] PROGMEM = {
 const int LIPO_TABLE_SIZE = sizeof(lipo_voltage_table) / sizeof(lipo_voltage_table[0]);
 const int SCALE_FACTOR = 100 / (LIPO_TABLE_SIZE - 1);
 
-
 const int numReadings = 30; // Number of readings for the 30-second average
 unsigned long previousMillis = 0;
 const long interval = 1000; // Interval of 1 second (1000 ms)
@@ -61,6 +60,12 @@ void power_setup()
     {
         readings[i] = 0;
     }
+    /*
+    Set up microcontroller to occasionally wake up in case power is restored before the battery protection pack powers down
+    */
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+    D_println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
+
 }
 
 // Function to convert measured voltage into a percentage using linear interpolation
@@ -145,30 +150,27 @@ void deep_sleep()
 void power_control()
 {
     get_batt_percentage();
-    if (current_batt_perc >= VIDEO_ON_THRESHOLD)
+    if (!video_power && current_batt_perc >= VIDEO_ON_THRESHOLD)
     {
         // Turn PI on, as battery voltage sufficient
         // Turn off power drain circuit as turning on PI
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         digitalWrite(PI_POWER_PIN, 1);
         video_power = 1;
-        mic_power = 1;
+        pi_status = BOOTING;
+        pi_shutdown_time = 0;
         // D_println("PI on, Drain off");
     }
-    if (current_batt_perc <= VIDEO_OFF_THRESHOLD)
+    if (pi_status == UP && current_batt_perc <= VIDEO_OFF_THRESHOLD)
     {
-        // Turn PI off, as battery is running low
-        // TODO Send power down instruction to PI
-        digitalWrite(PI_POWER_PIN, 0);
-        video_power = 0;
-        mic_power = 1;
-        // D_println("PI off");
+        // Send shutdown command to PI but only if UP and responding
+        shutdown_pi();
     }
-    if (!video_power && current_batt_perc >= POWER_LOW_THRESHOLD)
+    if (!video_power && !drain_power && current_batt_perc >= POWER_LOW_THRESHOLD)
     {
-        // Turn on power drain circuit PI is off
+        // Turn on power drain circuit as PI is off
         digitalWrite(CURRENT_DRAIN_PIN, 1);
-        mic_power = 1;
+        drain_power = 1;
         // D_println("PI off, Drain on");
     }
     if (current_batt_perc <= POWER_LOW_THRESHOLD)
@@ -176,10 +178,22 @@ void power_control()
         // Turn off power drain circuit.
         // This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
         digitalWrite(CURRENT_DRAIN_PIN, 0);
+        drain_power = 0;
         mic_power = 0;
         //Turn everything off
         deep_sleep();
         // D_println("Drain off");
     }
+    if (pi_status == SHUTTING_DOWN && pi_shutdown_time > 0) {
+        if (millis() - pi_shutdown_time > PI_SHUTDOWN_DELAY) {
+            //PI should have cleanly powered down by now - power down PI
+            digitalWrite(PI_POWER_PIN, 0);
+            video_power = 0;
+            mic_power = 1;
+            pi_status = SHUTDOWN;
+            D_println("PI off");
+        }
+    }
+
 }
 

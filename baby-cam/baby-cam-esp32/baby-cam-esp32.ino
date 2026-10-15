@@ -1,46 +1,12 @@
 #include <WiFi.h>
 
-#include "baby-cam-defs.h"
 #include "wifi-defs.h"
+#include "baby-cam-defs.h"
+#include "wifiStatus.h"
+#include "serial_comms.h"
 #include "audio.h"
 #include "batt_volt_sense.h"
 
-WebServer server(8080);
-
-// -------------------------
-// Status page
-// -------------------------
-void handleRoot()
-{
-    String json;
-
-    json += "{";
-    json += "\"battery_volts\": ";
-    json += current_batt_volts;
-    json += ",";
-    json += "\"battery_perc\": ";
-    json += current_batt_perc;
-    json += ",";
-    json += "\"video\": ";
-    json += video_power;
-    json += ",";
-    json += "\"microphone\": ";
-    json += mic_power;
-    // json += ","
-    json += "}";
-
-    // html += "<html><body>";
-    // html += "<h1>ESP32-C6 Microphone</h1>";
-    // html += "<p>SPH0645LM4H</p>";
-    // html += "<p>Sample rate: 16000 Hz</p>";
-    // html += "<p>Format: 16-bit mono PCM</p>";
-    // html += "<p>Batt Percentage:";
-    // html += batt_percentage;
-    // html += "</p>";
-    // html += "<p><a href=\"/audio\">Audio stream</a></p>";
-    // html += "</body></html>";
-    server.send(200, "text/json", json);
-}
 
 // -------------------------
 // Setup
@@ -49,8 +15,6 @@ void setup()
 {
     D_SerialBegin(115200);
     delay(1000);
-
-    power_setup();
 
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -67,21 +31,12 @@ void setup()
     D_print("IP address: ");
     D_println(WiFi.localIP());
 
+    power_setup();
+    setupStatusWebServer();
+    setupPiSerialComms();
     setupI2S();
     setupAudioServer();
 
-    server.on("/", HTTP_GET, handleRoot);
-
-    server.begin();
-
-    D_println("HTTP server started");
-
-    /*
-    First we configure the wake up source
-    We set our ESP32 to wake up every 5 seconds
-    */
-    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-    D_println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
 }
 
 // -------------------------
@@ -92,6 +47,8 @@ void loop()
     // Check on power situation
     power_control();
     server.handleClient();
+    requestPiStatus();  //Send regular status check to PI
+    checkPiResponse();  //Check for any comms from PI
     vTaskDelay(pdMS_TO_TICKS(10));
     // D_printf("Batttery perc: %f\n", batt_percentage);
     // delay(1000);
