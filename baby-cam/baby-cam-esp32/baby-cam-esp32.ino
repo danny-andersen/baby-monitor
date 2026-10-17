@@ -48,7 +48,9 @@ void loop()
     power_control();
     server.handleClient();
     requestPiStatus();  //Send regular status check to PI
-    checkPiResponse();  //Check for any comms from PI
+    if (last_req_time > 0) {
+        checkPiResponse();  //Check for any comms from PI
+    }
     vTaskDelay(pdMS_TO_TICKS(10));
     // D_printf("Batttery perc: %f\n", batt_percentage);
     // delay(1000);

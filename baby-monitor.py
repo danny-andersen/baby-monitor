@@ -1,6 +1,6 @@
 import sys
-import random
 import subprocess
+import json
 from urllib.parse import urlparse
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
@@ -20,6 +20,7 @@ from PyQt6.QtNetwork import (
     QNetworkRequest,
     QNetworkReply,
 )
+
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -124,14 +125,14 @@ class MainWindow(QWidget):
             Qt.WindowType.WindowStaysOnTopHint
         )
         self.load_urls_from_file()
-        if (self.control_url == "") or (self.camera_url == ""):
+        if (self.camera_health == "") or (self.camera_url == ""):
             QMessageBox.critical(
                 self,
                 "Error",
                 "Please provide camera and control URLs in url.txt"
             )
             sys.exit(1)
-        self.host = urlparse(self.control_url).hostname
+        self.host = urlparse(self.camera_health).hostname
 
         
         # --------------------
@@ -187,7 +188,7 @@ class MainWindow(QWidget):
         document.body.style.overflow = 'hidden';
         """)
         self.web_view.loadStarted.connect(self.on_load_started)
-        self.web_view.loadFinished.connect(self.on_load_finished)
+        # self.web_view.loadFinished.connect(self.on_load_finished)
 
         # self.web_view.page().renderProcessTerminated.connect(
         #     lambda *args: print("render terminated")
@@ -269,13 +270,13 @@ class MainWindow(QWidget):
         )
         self.camera_up = True
 
-    def on_load_finished(self):
-        print("Video stream stopped")
+    # def on_load_finished(self):
+    #     print("Video stream stopped")
 
-        self.video_stack.setCurrentWidget(
-            self.video_loading_label
-        )
-        self.camera_up = False
+    #     self.video_stack.setCurrentWidget(
+    #         self.video_loading_label
+    #     )
+    #     self.camera_up = False
 
 
     def check_camera(self):
@@ -292,15 +293,16 @@ class MainWindow(QWidget):
                 # Host is up - check camera is running
                 try:
                     request = QNetworkRequest(
-                        QUrl(self.control_url)
+                        QUrl(self.camera_health)
                     )
 
                     self.reply = self.network_manager.get(request)
-
                     # Set camera up / down when connect finished 
                     self.reply.finished.connect(
                         self.on_camera_check_finished
                     )        
+
+
                     # result = subprocess.run(
                     #     [
                     #         "wget",
@@ -339,11 +341,19 @@ class MainWindow(QWidget):
     def on_camera_check_finished(self):
         # print(f"Camera check finished, error={self.reply.error()} camera_up={self.camera_up}")
         if self.camera_available(self.reply.error()):
-            if self.camera_up == False:
-                print("Camera is back up, reloading video feed")
-                self.web_view.setUrl(QUrl(self.camera_url))
-                self.camera_up = True
-            self.video_stack.setCurrentWidget(self.web_view)
+            try: 
+                data = json.loads(bytes(self.reply.readAll()).decode())
+                if data.get("camera_ok"):
+                    if self.camera_up == False:
+                        print("Camera is back up, reloading video feed")
+                        self.web_view.setUrl(QUrl(self.camera_url))
+                        self.camera_up = True
+                        self.video_stack.setCurrentWidget(self.web_view)
+            except Exception as e:
+                print(f"Error parsing camera health response: {e}")
+                self.video_stack.setCurrentWidget(
+                    self.video_error_label
+                )
     
         else:
             # print("Camera not available, showing error label")
@@ -450,7 +460,7 @@ class MainWindow(QWidget):
     def load_urls_from_file(self):
 
         self.camera_url = ""
-        self.control_url = ""
+        self.camera_health = ""
         self.audio_url = ""
         self.status_url = ""
         try:
@@ -472,14 +482,14 @@ class MainWindow(QWidget):
 
                     if label == "camera":
                         self.camera_url = url
-                    elif label == "control":
-                        self.control_url = url
+                    elif label == "camera_health":
+                        self.camera_health = url
                     elif label == "audio":
                         self.audio_url = url
                     elif label == "status":
                         self.status_url = url
             print(f"Camera URL : {self.camera_url}")
-            print(f"Control URL: {self.control_url}")
+            print(f"Camera Health URL: {self.camera_health}")
             print(f"Audio URL: {self.audio_url}")
             print(f"Status URL: {self.status_url}")
 

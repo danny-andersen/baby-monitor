@@ -1,0 +1,2 @@
+scp baby-cam/serial/serial_commands.py baby-cam/serial/start_serial_commands.sh baby-cam/serial/requirements.txt baby-cam/serial/serial_commands.service baby-cam:serial/
+scp baby-cam/camera/camera_server.py baby-cam/camera/camera.service baby-cam:camera/

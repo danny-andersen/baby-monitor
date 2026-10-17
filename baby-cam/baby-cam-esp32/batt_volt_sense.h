@@ -159,7 +159,8 @@ void power_control()
         video_power = 1;
         pi_status = BOOTING;
         pi_shutdown_time = 0;
-        // D_println("PI on, Drain off");
+        pi_shutdown_request_time = 0;
+        D_println("PI on, Drain off");
     }
     if (pi_status == UP && current_batt_perc <= VIDEO_OFF_THRESHOLD)
     {
@@ -171,7 +172,7 @@ void power_control()
         // Turn on power drain circuit as PI is off
         digitalWrite(CURRENT_DRAIN_PIN, 1);
         drain_power = 1;
-        // D_println("PI off, Drain on");
+        D_println("PI off, Drain on");
     }
     if (current_batt_perc <= POWER_LOW_THRESHOLD)
     {
@@ -182,14 +183,16 @@ void power_control()
         mic_power = 0;
         //Turn everything off
         deep_sleep();
-        // D_println("Drain off");
+        D_println("Drain off");
     }
-    if (pi_status == SHUTTING_DOWN && pi_shutdown_time > 0) {
-        if (millis() - pi_shutdown_time > PI_SHUTDOWN_DELAY) {
+    if (video_power && (pi_shutdown_time > 0 || pi_shutdown_request_time > 0)) {
+        if (millis() - pi_shutdown_time > PI_SHUTDOWN_DELAY || millis() - pi_shutdown_request_time > PI_SHUTDOWN_DELAY) {
             //PI should have cleanly powered down by now - power down PI
             digitalWrite(PI_POWER_PIN, 0);
             video_power = 0;
             mic_power = 1;
+            pi_shutdown_time = 0;
+            pi_shutdown_request_time = 0;
             pi_status = SHUTDOWN;
             D_println("PI off");
         }

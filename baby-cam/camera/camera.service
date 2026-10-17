@@ -1,0 +1,16 @@
+[Unit]
+Description=Pi Camera Web Server
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=danny
+Group=danny
+ExecStart=python /home/danny/camera/camera_server.py
+WorkingDirectory=/home/danny/camera
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

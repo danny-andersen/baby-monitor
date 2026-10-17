@@ -1,4 +1,4 @@
-#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_SerialBegin(...) Serial.begin(__VA_ARGS__)
@@ -35,6 +35,7 @@
 #define uS_TO_S_FACTOR 1000000ULL /* Conversion factor for micro seconds to seconds */
 #define TIME_TO_SLEEP  60          /* Time ESP32 will go to sleep (in seconds) */
 
+#define PI_REQUEST_TIME 10000 /* How often to send a status check to the PI */
 #define PI_SHUTDOWN_DELAY 60000  /* Time allowed for PI to shutdown */
 #define PI_RESPONSE_TIME 5000 /* Time allowed for PI to respond to a command*/ 
 

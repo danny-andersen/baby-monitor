@@ -1,0 +1,12 @@
+[Unit]
+Description=ESP32 Serial Command Service
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/home/danny/serial/start_serial_commands.sh
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
