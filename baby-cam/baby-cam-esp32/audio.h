@@ -1,12 +1,5 @@
 #include <driver/i2s_std.h>
 
-// -------------------------
-// I2S pins
-// -------------------------
-#define I2S_BCLK 0
-#define I2S_DOUT 1
-#define I2S_WS_LRCLK 2
-
 #define SAMPLE_RATE 16000
 #define BUFFER_SAMPLES 1024
 #define AUDIO_QUEUE_BLOCKS 64

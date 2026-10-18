@@ -1,38 +1,8 @@
 #define STATUS_STR "<STATUS>"
 #define SHUTTING_DOWN_STR "<SHUTTING_DOWN>"
 #define SHUTDOWN_STR "<SHUTDOWN>"
-#define PI_OK "<OK>"
-
-String pi_status_str() {
-  String status_str = "";
-  switch(pi_status) {
-    case UNKNOWN:
-      status_str = "UNKNOWN";
-      break;
-    case BOOTING:
-      status_str = "BOOTING";
-      break;
-    case CHECKING:
-      status_str = "CHECKING";
-      break;
-    case NO_RESPONSE:
-      status_str = "NO_RESPONSE";
-      break;
-    case UP:
-      status_str = "UP";
-      break;
-    case SHUTDOWN_REQUESTED:
-      status_str = "SHUTDOWN_REQUESTED";
-      break;
-    case SHUTTING_DOWN:
-      status_str = "SHUTTING_DOWN";
-      break;
-    case SHUTDOWN:
-      status_str = "SHUTDOWN";
-      break;
-  }
-  return status_str;
-}
+#define PI_OK "<OK"
+#define CAMERA_STR "CAMERA="
 
 void setupPiSerialComms() {
     PI_SERIAL.begin(
@@ -70,14 +40,19 @@ void checkPiResponse() {
 
         last_req_time = 0;
  
-        Serial.print("Received: ");
-        Serial.println(rxLine);
         D_print("PI replied: ");
         D_println(rxLine);
 
         if (rxLine.indexOf(PI_OK) >= 0) {
-          D_println("PI is up");
           pi_status = UP;
+          if (rxLine.indexOf(CAMERA_STR) >=0) {
+            int startPos = rxLine.indexOf("=")+1;
+            int endPos = rxLine.indexOf(">");
+            if (startPos >= 0 && endPos >= 0) {
+              camera_status = rxLine.substring(startPos, endPos);
+            }
+          }
+          D_printf("PI is up, camera %s\n", camera_status);
         }
         if (rxLine.indexOf(SHUTTING_DOWN_STR) >= 0) {
           pi_shutdown_time = currentMillis;

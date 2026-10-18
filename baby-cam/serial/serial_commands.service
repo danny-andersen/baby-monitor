@@ -6,7 +6,8 @@ After=multi-user.target
 Type=simple
 ExecStart=/home/danny/serial/start_serial_commands.sh
 Restart=always
-User=pi
+User=danny
+WorkingDirectory=/home/danny/serial
 
 [Install]
 WantedBy=multi-user.target

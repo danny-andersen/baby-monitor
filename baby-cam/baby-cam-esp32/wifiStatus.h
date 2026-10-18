@@ -17,6 +17,9 @@ void handleRoot()
     json += "\"battery_perc\": ";
     json += current_batt_perc;
     json += ",";
+    json += "\"camera_status\": ";
+    json += pi_status_desc();
+    json += ",";
     json += "\"video\": ";
     json += video_power;
     json += ",";

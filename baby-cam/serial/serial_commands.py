@@ -3,6 +3,7 @@
 import os
 import serial
 import subprocess
+import requests
 
 ser = serial.Serial(
     '/dev/serial0',
@@ -15,6 +16,28 @@ ser = serial.Serial(
 
 print("Waiting for commands...")
 
+def camera_running():
+    try:
+        response = requests.get(
+            "http://localhost:8081/health",
+            timeout=2
+        )
+
+        response.raise_for_status()
+
+        health = response.json()
+
+        return health.get("camera_ok", False) is True
+
+    except Exception as e:
+        print(f"Camera health check failed: {e}")
+        return False
+    
+def send_status():
+    camera = "is running" if camera_running() else "has stopped"
+
+    ser.write(f"<OK,CAMERA={camera}>\n".encode())
+              
 while True:
     try:
         line = ser.readline().decode(
@@ -35,8 +58,7 @@ while True:
             # print(f"Received: {line}")
 
             if line == "<STATUS>":
-                msg = "<OK>\n"
-                ser.write(ser.write(msg.encode('ascii')))
+                send_status()
                 ser.flush()
 
             elif line == "<SHUTDOWN>":

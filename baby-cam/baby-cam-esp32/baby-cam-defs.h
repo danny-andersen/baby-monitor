@@ -16,6 +16,15 @@
 #define D_flush() 
 #endif
 
+//---PIN definitions----
+
+// -------------------------
+// I2S pins
+// -------------------------
+#define I2S_BCLK 0
+#define I2S_DOUT 1
+#define I2S_WS_LRCLK 2
+
 // UART comms with PI
 #define PI_SERIAL Serial1
 #define PI_SERIAL_TX_PIN 16
@@ -43,7 +52,6 @@
 enum PiStatus {
   UNKNOWN,
   BOOTING,
-  CHECKING,
   NO_RESPONSE,
   UP,
   SHUTDOWN_REQUESTED,
@@ -57,8 +65,66 @@ bool video_power = false; //Video off until PI is powered on
 bool mic_power = true; //Mic power is always on until power below low threshold
 bool drain_power = false; //Whether the circuit to put an extra power load on is on
 enum PiStatus pi_status = UNKNOWN;   //State of PI
+String camera_status = "Unknown"; //State of camera service running on the PI
 unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
 unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
 unsigned long last_req_time = 0;  //Time last request was sent
 unsigned long last_status_time = 0;  //Time last status command was sent
+
+String pi_status_str() {
+  String status_str = "";
+  switch(pi_status) {
+    case UNKNOWN:
+      status_str = "UNKNOWN";
+      break;
+    case BOOTING:
+      status_str = "BOOTING";
+      break;
+    case NO_RESPONSE:
+      status_str = "NO_RESPONSE";
+      break;
+    case UP:
+      status_str = "UP";
+      break;
+    case SHUTDOWN_REQUESTED:
+      status_str = "SHUTDOWN_REQUESTED";
+      break;
+    case SHUTTING_DOWN:
+      status_str = "SHUTTING_DOWN";
+      break;
+    case SHUTDOWN:
+      status_str = "SHUTDOWN";
+      break;
+  }
+  return status_str;
+}
+
+String pi_status_desc() {
+  String status_str = "";
+  switch(pi_status) {
+    case UNKNOWN:
+    case BOOTING:
+      status_str = "\"starting up\"";
+      break;
+    case NO_RESPONSE:
+      status_str = "\"temporarily unavailable\"";
+      break;
+    case UP:
+      if (camera_status != "") {
+        status_str = "\"" + camera_status + "\"";
+      }
+      else {
+        status_str = "\"available\"";
+      }
+      break;
+    case SHUTTING_DOWN:
+    case SHUTDOWN_REQUESTED:
+      status_str = "\"stopping\"";
+      break;
+    case SHUTDOWN:
+      status_str = "\"powered off\"";
+      break;
+  }
+  return status_str;
+}
 

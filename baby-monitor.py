@@ -110,6 +110,7 @@ class MainWindow(QWidget):
         self.audio_enabled = True
         self.video_enabled = True
         self.camera_up = False
+        self.camera_status = ""
 
         self.setStyleSheet("background-color: white;")
         
@@ -205,7 +206,7 @@ class MainWindow(QWidget):
         }
         """)
 
-        self.video_error_label = QLabel("Video feed currently not available.\n\nRetrying...")
+        self.video_error_label = QLabel(f"Video feed {self.camera_status}\n\nRetrying...")
         self.video_error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_error_label.setStyleSheet("""
         QLabel {
@@ -440,6 +441,9 @@ class MainWindow(QWidget):
         self.battery_worker.battery_updated.connect(
             self.update_battery
         )
+        self.battery_worker.camera_status_updated.connect(
+            self.update_camera_status
+        )
         self.battery_worker.status_error.connect(
             self.battery_status_error
         )
@@ -451,6 +455,13 @@ class MainWindow(QWidget):
 
     def battery_status_error(self, message):
         print(f"Battery status request failed: {message}")
+        
+    def update_camera_status(self, status):
+        self.camera_status = status
+        if not self.camera_up:
+            self.video_error_label.setText(
+                f"Video feed {self.camera_status}\n\nRetrying..."
+            )
 
     # ==================================================
     # URL loader

@@ -12,6 +12,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 class BatteryStatusWorker(QThread):
     battery_updated = pyqtSignal(int)
+    camera_status_updated = pyqtSignal(str)
     status_error = pyqtSignal(str)
 
     def __init__(self, status_url, parent=None):
@@ -28,8 +29,10 @@ class BatteryStatusWorker(QThread):
             data = response.json()
             percentage = int(data["battery_perc"])
             percentage = max(0, min(100, percentage))
-
             self.battery_updated.emit(percentage)
+
+            camera_status = data.get("camera_status", "Unknown")
+            self.camera_status_updated.emit(camera_status)
 
         except (requests.RequestException, ValueError, KeyError) as exc:
             self.status_error.emit(str(exc))
