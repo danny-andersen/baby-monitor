@@ -1,4 +1,6 @@
+#include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiMulti.h>
 
 #include "wifi-defs.h"
 #include "baby-cam-defs.h"
@@ -16,21 +18,7 @@ void setup()
     D_SerialBegin(115200);
     delay(1000);
 
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    D_print("Connecting to WiFi");
-
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        delay(500);
-        D_print(".");
-    }
-
-    D_println();
-    D_print("IP address: ");
-    D_println(WiFi.localIP());
-
+    setupWifi();
     power_setup();
     setupStatusWebServer();
     setupPiSerialComms();
@@ -44,6 +32,7 @@ void setup()
 // -------------------------
 void loop()
 {
+    check_wifi();
     // Check on power situation
     power_control();
     server.handleClient();

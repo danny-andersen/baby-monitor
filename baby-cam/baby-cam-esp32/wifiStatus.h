@@ -1,7 +1,11 @@
 #include <WebServer.h>
 
+WiFiMulti wifiMulti;
+
 WebServer server(8080);
 
+unsigned long lastWifiCheckMillis = 0;
+const long wifi_check_interval = 10000; // Interval of 10 second (1000 ms)
 
 // -------------------------
 // Status page
@@ -47,4 +51,55 @@ void setupStatusWebServer() {
 
     D_println("HTTP server started");
 
+}
+
+void setupWifi() {
+    // Connect to an available AP
+    for (int i=0; i<NO_OF_APS; i++) {
+        wifiMulti.addAP(WIFI_AP_ARRAY[i].apName, WIFI_AP_ARRAY[i].apPassword);
+    }
+    // WiFi.mode(WIFI_STA);
+    // WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    D_print("Connecting to WiFi");
+
+    // while (WiFi.status() != WL_CONNECTED)
+    // {
+    //     delay(500);
+    //     D_print(".");
+    // }
+    // D_println();
+    // D_print("IP address: ");
+    // D_println(WiFi.localIP());
+ 
+
+    if (wifiMulti.run() == WL_CONNECTED) {
+        wifi_connected = true;
+        D_println();
+        D_print("IP address: ");
+        D_println(WiFi.localIP());
+        setupStatusWebServer();
+    } 
+}
+
+void check_wifi() {
+    unsigned long currentMillis = millis();
+    if (lastWifiCheckMillis - currentMillis > wifi_check_interval) {
+        //If we dont have wifi check to see if it is now up
+        lastWifiCheckMillis = currentMillis;
+        if (wifiMulti.run() == WL_CONNECTED) {
+            if (!wifi_connected) {
+                //We have restarted Wifi
+                wifi_connected = true;
+                D_println();
+                D_print("IP address: ");
+                D_println(WiFi.localIP());
+                setupStatusWebServer();
+            }
+        } else {
+            //Lost connection
+            D_println("Lost wifi");
+            wifi_connected = false;
+        }
+    }
 }
