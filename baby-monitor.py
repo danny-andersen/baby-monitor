@@ -3,8 +3,8 @@ import subprocess
 import json
 from urllib.parse import urlparse
 
-from PyQt6.QtCore import Qt, QTimer, QUrl
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtCore import Qt, QTimer, QUrl, QPointF, QRectF
+from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QBrush
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
@@ -52,7 +52,7 @@ class BarGraphWidget(QWidget):
 
         painter.fillRect(self.rect(), Qt.GlobalColor.white)
 
-        margin = 20
+        margin = 10
 
         bar_width = self.width() - (2 * margin)
         bar_height = self.height() - (2 * margin)
@@ -61,8 +61,8 @@ class BarGraphWidget(QWidget):
         y = margin
 
         # Outer border
-        painter.setPen(QPen(Qt.GlobalColor.black, 2))
-        painter.drawRect(x, y, bar_width, bar_height)
+        # painter.setPen(QPen(Qt.GlobalColor.black, 2))
+        # painter.drawRect(x, y, bar_width, bar_height)
 
         fill_height = int((self.value / 100.0) * bar_height)
 
@@ -102,6 +102,133 @@ class BarGraphWidget(QWidget):
         )
 
 
+class SpeakerButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.audio_on = True
+        self.setFixedSize(200, 60)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: gray;
+                border: 2px solid #cccccc;
+                border-radius: 16px;
+            }
+            QPushButton:hover {
+                background-color: #eeeeee;
+            }
+        """)
+
+    def set_audio(self, enabled):
+        self.audio_on = bool(enabled)
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(
+            QPainter.RenderHint.Antialiasing
+        )
+
+        # Centre the 48 x 40 speaker drawing in the button
+        painter.translate(
+            (self.width() - 48) / 2,
+            (self.height() - 40) / 2
+        )
+
+        painter.setPen(QPen(QColor("#222222"), 2.5))
+        painter.setBrush(QBrush(QColor("#222222")))
+
+        # Speaker body
+        painter.drawPolygon(QPolygonF([
+            QPointF(9, 19),
+            QPointF(16, 19),
+            QPointF(25, 12),
+            QPointF(25, 36),
+            QPointF(16, 29),
+            QPointF(9, 29),
+        ]))
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if self.audio_on:
+            # Sound waves
+            painter.drawArc(
+                QRectF(19, 14, 18, 20), -55 * 16, 110 * 16
+            )
+            painter.drawArc(
+                QRectF(19, 8, 29, 32), -55 * 16, 110 * 16
+            )
+        else:
+            # Cross through speaker when muted
+            painter.setPen(QPen(QColor("#d32f2f"), 3))
+            painter.drawLine(29, 17, 42, 31)
+            painter.drawLine(42, 17, 29, 31)
+
+        painter.end()
+
+
+
+class PowerButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(200, 60)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                border: 1px solid #cccccc;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #eeeeee;
+            }
+        """)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(
+            QPainter.RenderHint.Antialiasing
+        )
+
+        # Centre a 32 x 32 power icon in the button
+        painter.translate(
+            (self.width() - 32) / 2,
+            (self.height() - 32) / 2
+        )
+
+        painter.setPen(QPen(
+            QColor("#222222"),
+            3,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap
+        ))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Complete circular ring
+        painter.drawEllipse(QRectF(3, 3, 26, 26))
+
+        # Cover the top-centre section to create the gap
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("red"))
+        painter.drawRect(QRectF(10, 0, 12, 12))
+
+        # Draw the vertical power line
+        painter.setPen(QPen(
+            QColor("#222222"),
+            3,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap
+        ))
+        painter.drawLine(QPointF(16, 1), QPointF(16, 17))        # Vertical power line
+
+        painter.end()
+
+
 class MainWindow(QWidget):
 
     def __init__(self):
@@ -112,7 +239,7 @@ class MainWindow(QWidget):
         self.camera_up = False
         self.camera_status = ""
 
-        self.setStyleSheet("background-color: white;")
+        self.setStyleSheet("background-color: gray;")
         
         # self.setWindowTitle("Baby Monitor")
         # No title bar, border, minimize/maximize buttons
@@ -142,19 +269,16 @@ class MainWindow(QWidget):
 
         self.bar_graph = BarGraphWidget()
 
-        self.audio_button = QPushButton()
+        self.audio_button = SpeakerButton()
+        self.audio_button.set_audio(self.audio_enabled)
+
         self.icon = BatteryIcon()
 
-        self.shutdown_button = QPushButton()
-
-        self.update_audio_button()
-
-        self.shutdown_button.setText("Shutdown")
+        self.shutdown_button = PowerButton()
         
         self.audio_button.clicked.connect(self.toggle_audio)
         self.shutdown_button.clicked.connect(self.shutdown_requested)
 
-        self.audio_button.setMinimumHeight(60)
         self.shutdown_button.setMinimumHeight(60)
 
         self.audio_button.setStyleSheet(
@@ -189,24 +313,8 @@ class MainWindow(QWidget):
         document.body.style.overflow = 'hidden';
         """)
         self.web_view.loadStarted.connect(self.on_load_started)
-        # self.web_view.loadFinished.connect(self.on_load_finished)
 
-        # self.web_view.page().renderProcessTerminated.connect(
-        #     lambda *args: print("render terminated")
-        # )
-
-        self.video_loading_label = QLabel("Loading Video feed\n\nPlease wait..")
-        self.video_loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_loading_label.setStyleSheet("""
-        QLabel {
-        font-size: 24px;
-        font-weight: bold;
-        color: white;
-        background-color: black;
-        }
-        """)
-
-        self.video_error_label = QLabel(f"Video feed {self.camera_status}\n\nRetrying...")
+        self.video_error_label = QLabel(f"Loading Video feed\n\nPlease wait..")
         self.video_error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_error_label.setStyleSheet("""
         QLabel {
@@ -219,10 +327,9 @@ class MainWindow(QWidget):
         self.video_stack = QStackedLayout()
         self.video_stack.addWidget(self.web_view)
         self.video_stack.addWidget(self.video_error_label)
-        self.video_stack.addWidget(self.video_loading_label)
         self.video_container = QWidget()
         self.video_container.setLayout(self.video_stack)
-        self.video_stack.setCurrentWidget(self.video_loading_label)
+        self.video_stack.setCurrentWidget(self.video_error_label)
 
         # --------------------
         # Main Layout
@@ -321,13 +428,20 @@ class MainWindow(QWidget):
                     self.camera_up = False
             else:
                 # print(f"Ping failed for host {self.host}, returncode={result.returncode}")
+                if self.camera_up:
+                    self.update_camera_status("failed")
+                    self.video_stack.setCurrentWidget(
+                        self.video_error_label
+                    )
+                    self.camera_up = False
+                    
+        except Exception:
+            if self.camera_up:
+                self.update_camera_status("host unreachable")
                 self.video_stack.setCurrentWidget(
                     self.video_error_label
                 )
                 self.camera_up = False
-                    
-        except Exception:
-            self.camera_up = False
 
     def camera_available(self, error):
 
@@ -349,19 +463,22 @@ class MainWindow(QWidget):
                         print("Camera is back up, reloading video feed")
                         self.web_view.setUrl(QUrl(self.camera_url))
                         self.camera_up = True
-                        self.video_stack.setCurrentWidget(self.web_view)
+                    self.video_stack.setCurrentWidget(self.web_view)
             except Exception as e:
                 print(f"Error parsing camera health response: {e}")
+                self.update_camera_status("garbled")
                 self.video_stack.setCurrentWidget(
                     self.video_error_label
                 )
     
         else:
             # print("Camera not available, showing error label")
-            self.video_stack.setCurrentWidget(
-                self.video_error_label
-            )
-            self.camera_up = False
+            if self.camera_up:
+                self.update_camera_status("unavailable")
+                self.video_stack.setCurrentWidget(
+                    self.video_error_label
+                )
+                self.camera_up = False
 
 
     # ==================================================
@@ -381,14 +498,11 @@ class MainWindow(QWidget):
     # Audio
     # ==================================================
 
-    def update_audio_button(self):
-        state = "ON" if self.audio_enabled else "OFF"
-        self.audio_button.setText(f"Audio {state}")
 
     def toggle_audio(self):
         self.audio_enabled = not self.audio_enabled
         self.audio_streamer.audio_output_enabled = self.audio_enabled
-        self.update_audio_button()
+        self.audio_button.set_audio(self.audio_enabled)
 
     # ==================================================
     # Shutdown
@@ -426,7 +540,7 @@ class MainWindow(QWidget):
             self.fetch_battery_status
         )
         self.fetch_battery_status()
-        self.battery_timer.start(60_000)
+        self.battery_timer.start(5000)
 
 
     def fetch_battery_status(self):
@@ -447,6 +561,10 @@ class MainWindow(QWidget):
         self.battery_worker.status_error.connect(
             self.battery_status_error
         )
+        self.battery_worker.charging_status_updated.connect(
+            self.icon.set_charging
+        )
+
         self.battery_worker.start()
 
 
@@ -454,14 +572,18 @@ class MainWindow(QWidget):
         self.icon.set_percentage(percentage)
 
     def battery_status_error(self, message):
-        print(f"Battery status request failed: {message}")
+        self.icon.set_percentage(0)
+        self.update_camera_status("unavailable")
+        # print(f"Battery status request failed: {message}")
         
     def update_camera_status(self, status):
         self.camera_status = status
-        if not self.camera_up:
-            self.video_error_label.setText(
-                f"Video feed {self.camera_status}\n\nRetrying..."
-            )
+        retry = "Retrying..." if "available" in self.camera_status else ""
+        retry = "Waiting..." if "starting" in self.camera_status else retry
+        
+        self.video_error_label.setText(
+            f"Video feed {self.camera_status}\n\n{retry}"
+        )
 
     # ==================================================
     # URL loader

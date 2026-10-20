@@ -14,7 +14,7 @@ void setupPiSerialComms() {
 }
 
 void requestPiStatus() {
-  if (pi_status == UNKNOWN || pi_status == UP || pi_status == BOOTING || pi_status == NO_RESPONSE) {
+  if (video_power && (pi_status == UNKNOWN || pi_status == UP || pi_status == BOOTING || pi_status == NO_RESPONSE)) {
     //Only check PI if we know it is up or should be up
     unsigned long currentMillis = millis();
     if ((currentMillis - last_status_time) > PI_REQUEST_TIME)
@@ -78,16 +78,21 @@ void checkPiResponse() {
     {
       pi_status = NO_RESPONSE;
     }
+    if (pi_status == SHUTDOWN_REQUESTED) {
+      //Start the clock ticking anyway
+      pi_shutdown_time = currentMillis;
+      //Try sending command again
+      pi_shutdown_request_time = 0;
+    }
   }
 }
 
 void shutdown_pi() {
-  unsigned long currentMillis = millis();
-  if (pi_shutdown_request_time == 0 || currentMillis - pi_shutdown_request_time > PI_RESPONSE_TIME) {
+  if (pi_shutdown_request_time == 0) {
       PI_SERIAL.println(SHUTDOWN_STR);
       pi_status = SHUTDOWN_REQUESTED;
+      unsigned long currentMillis = millis();
       pi_shutdown_request_time = currentMillis;
-      pi_shutdown_time = currentMillis;
       last_req_time = currentMillis;
       D_println("PI shutdown request sent");
   }

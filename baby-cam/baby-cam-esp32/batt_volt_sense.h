@@ -53,6 +53,8 @@ void power_setup()
     pinMode(PI_POWER_PIN, OUTPUT);
     digitalWrite(PI_POWER_PIN, 0);
 
+    pinMode(CHARGING_PIN, INPUT);
+
     // Set resolution of ADC to match C6
     analogReadResolution(12);
     // Zero reading array
@@ -150,11 +152,12 @@ void deep_sleep()
 void power_control()
 {
     get_batt_percentage();
-    if (!video_power && current_batt_perc >= VIDEO_ON_THRESHOLD)
+    charging = digitalRead(CHARGING_PIN);
+    if (wifi_connected && !video_power && current_batt_perc >= VIDEO_ON_THRESHOLD)
     {
-        // Turn PI on, as battery voltage sufficient
-        // Turn off power drain circuit as turning on PI
+        // Turn PI on, as battery voltage sufficient and we have wifi
         digitalWrite(CURRENT_DRAIN_PIN, 0);
+        // Turn off power drain circuit as turning on PI
         digitalWrite(PI_POWER_PIN, 1);
         video_power = 1;
         pi_status = BOOTING;
@@ -162,10 +165,15 @@ void power_control()
         pi_shutdown_request_time = 0;
         D_println("PI on, Drain off");
     }
-    if (pi_status == UP && current_batt_perc <= VIDEO_OFF_THRESHOLD)
+    if (video_power && (current_batt_perc <= VIDEO_OFF_THRESHOLD || !wifi_connected))
     {
-        // Send shutdown command to PI but only if UP and responding
-        shutdown_pi();
+        // Battery level too low or we dont have wifi, send shutdown command to PI but only if UP and responding
+        if (pi_status == UP) {
+            shutdown_pi();
+        } else if (pi_shutdown_time == 0 && pi_status == NO_RESPONSE) {
+            //PI not responding - start the shutdown timer anyway to prevent an unresponsive PI from staying on
+            pi_shutdown_time = millis();
+        }
     }
     if (!video_power && !drain_power && current_batt_perc >= POWER_LOW_THRESHOLD)
     {
@@ -179,23 +187,25 @@ void power_control()
         // Turn off power drain circuit.
         // This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
         digitalWrite(CURRENT_DRAIN_PIN, 0);
+        //Make sure PI is off
+        digitalWrite(PI_POWER_PIN, 0);
+        video_power = 0;
         drain_power = 0;
-        mic_power = 0;
-        //Turn everything off
-        deep_sleep();
         D_println("Drain off");
+        D_flush();
+        mic_power = 0;
+        //Turn everything else off
+        deep_sleep();
     }
-    if (video_power && (pi_shutdown_time > 0 || pi_shutdown_request_time > 0)) {
-        if (millis() - pi_shutdown_time > PI_SHUTDOWN_DELAY || millis() - pi_shutdown_request_time > PI_SHUTDOWN_DELAY) {
-            //PI should have cleanly powered down by now - power down PI
-            digitalWrite(PI_POWER_PIN, 0);
-            video_power = 0;
-            mic_power = 1;
-            pi_shutdown_time = 0;
-            pi_shutdown_request_time = 0;
-            pi_status = SHUTDOWN;
-            D_println("PI off");
-        }
+    if (video_power && pi_shutdown_time != 0 && (millis() - pi_shutdown_time > PI_SHUTDOWN_DELAY)) {
+        //PI should have cleanly powered down by now - power down PI
+        digitalWrite(PI_POWER_PIN, 0);
+        video_power = 0;
+        mic_power = 1;
+        pi_shutdown_time = 0;
+        pi_shutdown_request_time = 0;
+        pi_status = SHUTDOWN;
+        D_println("PI off");
     }
 
 }

@@ -1,4 +1,4 @@
-#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_SerialBegin(...) Serial.begin(__VA_ARGS__)
@@ -34,6 +34,7 @@
 #define CURRENT_DRAIN_PIN 3 // Keeps the battery protection from turning off the power when only the ESP is running
 #define BATT_VOLTAGE_PIN 6
 #define PI_POWER_PIN 14 // Controls power to PI via a relay: low is on, high is off
+#define CHARGING_PIN 18 //Set high if battery is charging, i.e. on external power
 
 //Power thresholds
 #define VIDEO_ON_THRESHOLD 60
@@ -51,6 +52,7 @@
 //PI status
 enum PiStatus {
   UNKNOWN,
+  POWERED_OFF,
   BOOTING,
   NO_RESPONSE,
   UP,
@@ -59,12 +61,14 @@ enum PiStatus {
   SHUTDOWN
 };
 
+bool wifi_connected = false; //Whether we have wifi or not
 int current_batt_perc = 0;  // Currently calculated battery percentage
 float current_batt_volts = 0.0;
 bool video_power = false; //Video off until PI is powered on
 bool mic_power = true; //Mic power is always on until power below low threshold
+int charging = 0; //Whether powered externally or not
 bool drain_power = false; //Whether the circuit to put an extra power load on is on
-enum PiStatus pi_status = UNKNOWN;   //State of PI
+enum PiStatus pi_status = POWERED_OFF;   //State of PI
 String camera_status = "Unknown"; //State of camera service running on the PI
 unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
 unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
@@ -76,6 +80,9 @@ String pi_status_str() {
   switch(pi_status) {
     case UNKNOWN:
       status_str = "UNKNOWN";
+      break;
+    case POWERED_OFF:
+      status_str = "POWERED_OFF";
       break;
     case BOOTING:
       status_str = "BOOTING";
@@ -103,6 +110,9 @@ String pi_status_desc() {
   String status_str = "";
   switch(pi_status) {
     case UNKNOWN:
+    case POWERED_OFF:
+      status_str = "\"powered off\"";
+      break;
     case BOOTING:
       status_str = "\"starting up\"";
       break;

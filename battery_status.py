@@ -13,6 +13,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 class BatteryStatusWorker(QThread):
     battery_updated = pyqtSignal(int)
     camera_status_updated = pyqtSignal(str)
+    charging_status_updated = pyqtSignal(bool)
     status_error = pyqtSignal(str)
 
     def __init__(self, status_url, parent=None):
@@ -31,8 +32,11 @@ class BatteryStatusWorker(QThread):
             percentage = max(0, min(100, percentage))
             self.battery_updated.emit(percentage)
 
-            camera_status = data.get("camera_status", "Unknown")
+            camera_status = data.get("camera_status", "unknown")
             self.camera_status_updated.emit(camera_status)
+
+            charging = data.get("charging", 0)
+            self.charging_status_updated.emit(charging)
 
         except (requests.RequestException, ValueError, KeyError) as exc:
             self.status_error.emit(str(exc))
@@ -42,10 +46,15 @@ class BatteryIcon(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.percentage = 0
+        self.charging = 0
         self.setMinimumSize(180, 60)
 
     def set_percentage(self, value):
         self.percentage = max(0, min(100, int(value)))
+        self.update()
+
+    def set_charging(self, value):
+        self.charging = bool(value)
         self.update()
 
     def paintEvent(self, event):
@@ -95,12 +104,49 @@ class BatteryIcon(QWidget):
         font.setPointSize(15)
         painter.setFont(font)
 
-        painter.drawText(
-            QRectF(5, 5, 130, 50),
-            Qt.AlignmentFlag.AlignCenter,
-            f"{self.percentage}%"
-        )
+        if self.charging:
+            # Position percentage towards the left
+            painter.drawText(
+                QRectF(7, 5, 83, 50),
+                Qt.AlignmentFlag.AlignCenter,
+                f"{self.percentage}%"
+            )
 
+            # Draw a lightning bolt on the right
+            bolt = [
+                (108, 10),
+                (94, 31),
+                (104, 31),
+                (98, 49),
+                (119, 24),
+                (108, 24),
+            ]
+
+            from PyQt6.QtGui import QPolygonF
+            from PyQt6.QtCore import QPointF
+
+            cx, cy = 106.5, 29.5
+            scale = 0.8
+
+            scaled_bolt = [
+                QPointF(
+                    cx + (x - cx) * scale,
+                    cy + (y - cy) * scale
+                )
+                for x, y in bolt
+            ]
+
+            painter.setPen(QPen(QColor("#202020"), 1))
+            painter.setBrush(QColor("#202020"))
+            painter.drawPolygon(QPolygonF(scaled_bolt))
+        else:
+            # Centre percentage when not charging
+            painter.drawText(
+                QRectF(5, 5, 130, 50),
+                Qt.AlignmentFlag.AlignCenter,
+                f"{self.percentage}%"
+            )
+            
         painter.end()
 
 class BatteryWindow(QWidget):
