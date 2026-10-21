@@ -43,14 +43,17 @@ class BarGraphWidget(QWidget):
         self.update()
 
     def set_audio_status(self, status: str):
-        self.audio_status = status
+        if "playing" in status:
+            self.audio_status = ""
+        else:
+            self.audio_status = status
         self.update()
 
 
     def paintEvent(self, event):
         painter = QPainter(self)
 
-        painter.fillRect(self.rect(), Qt.GlobalColor.white)
+        # painter.fillRect(self.rect(), Qt.GlobalColor.gray)
 
         margin = 10
 
@@ -61,8 +64,8 @@ class BarGraphWidget(QWidget):
         y = margin
 
         # Outer border
-        # painter.setPen(QPen(Qt.GlobalColor.black, 2))
-        # painter.drawRect(x, y, bar_width, bar_height)
+        painter.setPen(QPen(Qt.GlobalColor.gray, 2))
+        painter.drawRect(x, y, bar_width, bar_height)
 
         fill_height = int((self.value / 100.0) * bar_height)
 
@@ -108,17 +111,12 @@ class SpeakerButton(QPushButton):
         self.audio_on = True
         self.setFixedSize(200, 60)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self.setStyleSheet("""
-            QPushButton {
-                background-color: gray;
-                border: 2px solid #cccccc;
-                border-radius: 16px;
-            }
-            QPushButton:hover {
-                background-color: #eeeeee;
-            }
-        """)
+        self.setStyleSheet(
+            "font-size: 20px; font-weight: bold;"
+            "background-color: Gray;"
+            "border: 4px solid #cccccc;"
+            "border-radius: 16px;"
+        )
 
     def set_audio(self, enabled):
         self.audio_on = bool(enabled)
@@ -175,17 +173,17 @@ class PowerButton(QPushButton):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(200, 60)
+        self.setMinimumHeight(60)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             QPushButton {
-                background-color: white;
-                border: 1px solid #cccccc;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #eeeeee;
-            }
-        """)
+            background-color: #b00000;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            border: 4px solid #cccccc;
+            border-radius: 16px;
+}        """)
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -214,7 +212,7 @@ class PowerButton(QPushButton):
 
         # Cover the top-centre section to create the gap
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("red"))
+        painter.setBrush(QColor("#b00000"))
         painter.drawRect(QRectF(10, 0, 12, 12))
 
         # Draw the vertical power line
@@ -239,7 +237,7 @@ class MainWindow(QWidget):
         self.camera_up = False
         self.camera_status = ""
 
-        self.setStyleSheet("background-color: gray;")
+        self.setStyleSheet("background-color: LightGray;")
         
         # self.setWindowTitle("Baby Monitor")
         # No title bar, border, minimize/maximize buttons
@@ -271,27 +269,12 @@ class MainWindow(QWidget):
 
         self.audio_button = SpeakerButton()
         self.audio_button.set_audio(self.audio_enabled)
+        self.audio_button.clicked.connect(self.toggle_audio)
 
         self.icon = BatteryIcon()
 
         self.shutdown_button = PowerButton()
-        
-        self.audio_button.clicked.connect(self.toggle_audio)
         self.shutdown_button.clicked.connect(self.shutdown_requested)
-
-        self.shutdown_button.setMinimumHeight(60)
-
-        self.audio_button.setStyleSheet(
-            "font-size: 20px; font-weight: bold;"
-        )
-
-        self.shutdown_button.setStyleSheet("""
-            QPushButton {
-            background-color: #b00000;
-            color: white;
-            font-size: 20px;
-            font-weight: bold;
-}        """)
         
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.bar_graph, stretch=1)

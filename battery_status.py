@@ -69,7 +69,7 @@ class BatteryIcon(QWidget):
         )
 
         # Battery outline
-        painter.setPen(QPen(QColor("#dddddd"), 3))
+        painter.setPen(QPen(QColor("#404040"), 3))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(
             QRectF(5, 5, 130, 50), 6, 6
@@ -77,7 +77,7 @@ class BatteryIcon(QWidget):
 
         # Battery terminal
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#dddddd"))
+        painter.setBrush(QColor("#404040"))
         painter.drawRoundedRect(
             QRectF(137, 19, 8, 22), 2, 2
         )

@@ -48,11 +48,13 @@ void power_setup()
 {
     // Set up output for transistor to act as a current drain to stop battery protection circuit from turning off the power
     pinMode(CURRENT_DRAIN_PIN, OUTPUT);
-    digitalWrite(CURRENT_DRAIN_PIN, 0);
+    //Turn on drain - this will be turned off if we have enough services running to keep the power on
+    digitalWrite(CURRENT_DRAIN_PIN, 1);
 
+    //Output controlling relay to power the PI for the video. Start with it off until we are sure we have enough battery to run it
     pinMode(PI_POWER_PIN, OUTPUT);
     digitalWrite(PI_POWER_PIN, 0);
-
+    //This senses the external USB +5v line to determine whether we are on external power or not
     pinMode(CHARGING_PIN, INPUT);
 
     // Set resolution of ADC to match C6
