@@ -6,7 +6,6 @@ WebServer server(8080);
 
 unsigned long lastWifiCheckMillis = 0;
 const long wifi_check_interval = 10000; // Interval of 10 second (1000 ms)
-
 // -------------------------
 // Status page
 // -------------------------
@@ -32,6 +31,12 @@ void handleRoot()
     json += ",";
     json += "\"microphone\": ";
     json += mic_power;
+    json += ",";
+    json += "\"infrared_led\": ";
+    json += infrared_lights_on;
+    json += ",";
+    json += "\"light_level\": ";
+    json += light_level;
     // json += ","
     json += "}";
 
@@ -78,9 +83,9 @@ void setupWifi() {
 
     if (wifiMulti.run() == WL_CONNECTED) {
         wifi_connected = true;
-        D_println();
-        D_print("IP address: ");
-        D_println(WiFi.localIP());
+        audio_ip = WiFi.localIP().toString();
+        ap_name = WiFi.SSID();
+        D_printf("\nIP address: %s, on AP: %s\n", audio_ip, ap_name);
         setupStatusWebServer();
     } 
 }

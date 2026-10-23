@@ -1,4 +1,4 @@
-#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_SerialBegin(...) Serial.begin(__VA_ARGS__)
@@ -32,9 +32,11 @@
 
 // General Pins
 #define CURRENT_DRAIN_PIN 3 // Keeps the battery protection from turning off the power when only the ESP is running
+#define DARK_DET_PIN 4 // Determines the ambient light level - 0.5V very bright, 2V average 2.9V very dart
 #define BATT_VOLTAGE_PIN 6
 #define PI_POWER_PIN 14 // Controls power to PI via a relay: low is on, high is off
 #define CHARGING_PIN 18 //Set high if battery is charging, i.e. on external power
+#define INFRARED_LED_DRIVER 19 //Output to drive Infra red LED lights on
 
 //Power thresholds
 #define VIDEO_ON_THRESHOLD 60
@@ -48,6 +50,10 @@
 #define PI_REQUEST_TIME 10000 /* How often to send a status check to the PI */
 #define PI_SHUTDOWN_DELAY 60000  /* Time allowed for PI to shutdown */
 #define PI_RESPONSE_TIME 5000 /* Time allowed for PI to respond to a command*/ 
+
+//INFRA RED LED LIGHT thresholds (0 is pitch black, 100 is very bright)
+#define INFRARED_ON_THRESHOLD 25
+#define INFRARED_OFF_THRESHOLD 50
 
 //PI status
 enum PiStatus {
@@ -74,6 +80,11 @@ unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
 unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
 unsigned long last_req_time = 0;  //Time last request was sent
 unsigned long last_status_time = 0;  //Time last status command was sent
+int light_level = 0; //Level of the ambient light (0-100)
+bool infrared_lights_on = false; //Whether the led lights are on or off
+String audio_ip = "0.0.0.0"; //Not set
+String video_ip = "0.0.0.0";
+String ap_name = SOFT_AP_NAME;
 
 String pi_status_str() {
   String status_str = "";

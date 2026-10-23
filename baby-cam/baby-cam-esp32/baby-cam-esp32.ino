@@ -5,9 +5,11 @@
 #include "wifi-defs.h"
 #include "baby-cam-defs.h"
 #include "wifiStatus.h"
+#include "bluetooth.h"
 #include "serial_comms.h"
 #include "audio.h"
 #include "batt_volt_sense.h"
+#include "infra_red_driver.h"
 
 
 // -------------------------
@@ -15,16 +17,21 @@
 // -------------------------
 void setup()
 {
-    D_SerialBegin(115200);
+    // D_SerialBegin(115200);
+    Serial.begin(115200);
+    Serial.println("Setup");
     delay(1000);
 
-    setupWifi();
     power_setup();
+    setupInfraDriver();
+
+    setupWifi();
+    // setupBluetooth();
     setupStatusWebServer();
-    setupPiSerialComms();
     setupI2S();
     setupAudioServer();
-
+    setupPiSerialComms();
+    D_println("Set up complete");
 }
 
 // -------------------------
@@ -35,6 +42,7 @@ void loop()
     check_wifi();
     // Check on power situation
     power_control();
+    driveInfraLight();
     server.handleClient();
     requestPiStatus();  //Send regular status check to PI
     if (last_req_time > 0) {

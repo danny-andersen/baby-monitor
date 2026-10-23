@@ -64,6 +64,8 @@ void power_setup()
     {
         readings[i] = 0;
     }
+    //Do a dummy reading
+    analogRead(BATT_VOLTAGE_PIN);
     /*
     Set up microcontroller to occasionally wake up in case power is restored before the battery protection pack powers down
     */
