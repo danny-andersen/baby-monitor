@@ -449,10 +449,10 @@ class MainWindow(QWidget):
                     self.video_stack.setCurrentWidget(self.web_view)
             except Exception as e:
                 print(f"Error parsing camera health response: {e}")
-                self.update_camera_status("garbled")
-                self.video_stack.setCurrentWidget(
-                    self.video_error_label
-                )
+                # self.update_camera_status("garbled")
+                # self.video_stack.setCurrentWidget(
+                #     self.video_error_label
+                # )
     
         else:
             # print("Camera not available, showing error label")

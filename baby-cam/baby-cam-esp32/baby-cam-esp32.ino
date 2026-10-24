@@ -17,16 +17,19 @@
 // -------------------------
 void setup()
 {
-    // D_SerialBegin(115200);
-    Serial.begin(115200);
-    Serial.println("Setup");
+    D_SerialBegin(115200);
     delay(1000);
+    unsigned long start = millis();
+    while (!Serial && (millis() - start) < 3000) {
+     vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    D_println("Setup start");
 
     power_setup();
     setupInfraDriver();
 
     setupWifi();
-    // setupBluetooth();
+    setupBluetooth();
     setupStatusWebServer();
     setupI2S();
     setupAudioServer();

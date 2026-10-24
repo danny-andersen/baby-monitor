@@ -26,7 +26,7 @@ void driveInfraLight() {
         //Read light level based on input voltage - 0.2V very bright, 2V average 2.9V very dark
         float ldr_volts = analogReadMilliVolts(DARK_DET_PIN) /1000.0;
         light_level = int((ldr_volts * m) + c);
-        D_printf("AI %d, Light volts: %f, level = %d\n", det_in, ldr_volts, light_level);
+        D_printf("Light volts: %f, level = %d\n", ldr_volts, light_level);
         if (video_power && !infrared_lights_on && light_level <= INFRARED_ON_THRESHOLD) {
           digitalWrite(INFRARED_LED_DRIVER, 1);
           infrared_lights_on = true;
