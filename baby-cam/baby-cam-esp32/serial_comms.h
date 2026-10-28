@@ -3,6 +3,8 @@
 #define SHUTDOWN_STR "<SHUTDOWN>"
 #define PI_OK "<OK"
 #define CAMERA_STR "CAMERA="
+#define GET_IP "<GET_IP>"
+#define IP_ADDR "IP="
 
 void setupPiSerialComms() {
     PI_SERIAL.begin(
@@ -22,9 +24,15 @@ void requestPiStatus() {
       last_req_time = currentMillis;
       last_status_time = currentMillis;
       PI_SERIAL.println(STATUS_STR);
-      D_printf("Status %d: %s\n", pi_status,pi_status_str());
     }
   }
+}
+
+void requestPiAddr() {
+  unsigned long currentMillis = millis();
+  last_req_time = currentMillis;
+  last_status_time = currentMillis;
+  PI_SERIAL.println(GET_IP);
 }
 
 void checkPiResponse() {
@@ -44,6 +52,10 @@ void checkPiResponse() {
         D_println(rxLine);
 
         if (rxLine.indexOf(PI_OK) >= 0) {
+          if (pi_status != UP || video_ip.indexOf("0.0.0.0") >=0 ) {
+            //If PI has been down or we dont have an IP address yet, send the request
+            request_pi_addr = true;
+          }
           pi_status = UP;
           if (rxLine.indexOf(CAMERA_STR) >=0) {
             int startPos = rxLine.indexOf("=")+1;
@@ -52,7 +64,17 @@ void checkPiResponse() {
               camera_status = rxLine.substring(startPos, endPos);
             }
           }
-          D_printf("PI is up, camera %s\n", camera_status);
+        }
+        D_printf("Status %d: %s\n", pi_status,pi_status_str());
+        int ip_pos = rxLine.indexOf(IP_ADDR);
+        if (ip_pos >=0) {
+          int startPos = ip_pos + 3;
+          int endPos = rxLine.indexOf(">");
+          if (startPos >= 0 && endPos >= 0) {
+            video_ip = rxLine.substring(startPos, endPos);
+            D_printf("Rx PI ip addr %s\n", video_ip);
+            notifyIPChange();
+          }
         }
         if (rxLine.indexOf(SHUTTING_DOWN_STR) >= 0) {
           pi_shutdown_time = currentMillis;

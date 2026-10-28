@@ -1,4 +1,4 @@
-#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_Serial Serial
@@ -54,8 +54,8 @@
 #define PI_RESPONSE_TIME 5000 /* Time allowed for PI to respond to a command*/ 
 
 //INFRA RED LED LIGHT thresholds (0 is pitch black, 100 is very bright)
-#define INFRARED_ON_THRESHOLD 25
-#define INFRARED_OFF_THRESHOLD 50
+#define INFRARED_ON_THRESHOLD 20
+#define INFRARED_OFF_THRESHOLD 35
 
 //PI status
 enum PiStatus {
@@ -86,6 +86,7 @@ int light_level = 0; //Level of the ambient light (0-100)
 bool infrared_lights_on = false; //Whether the led lights are on or off
 String audio_ip = "0.0.0.0"; //Not set
 String video_ip = "0.0.0.0";
+bool request_pi_addr = false; //Set to true when PI is UP
 String ap_name = SOFT_AP_NAME;
 
 String pi_status_str() {

@@ -9,11 +9,17 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal
 
+class BatteryStatus:
+    battery_level = 0
+    charging = 0
+    camera_status = ""
+    video_addr = ""
+    video_on = 0
+    microphone_on = 0
+    
 
 class BatteryStatusWorker(QThread):
-    battery_updated = pyqtSignal(int)
-    camera_status_updated = pyqtSignal(str)
-    charging_status_updated = pyqtSignal(bool)
+    status_updated = pyqtSignal(BatteryStatus)
     status_error = pyqtSignal(str)
 
     def __init__(self, status_url, parent=None):
@@ -26,17 +32,16 @@ class BatteryStatusWorker(QThread):
                 self.status_url, timeout=10
             )
             response.raise_for_status()
-
+            status = BatteryStatus()
             data = response.json()
             percentage = int(data["battery_perc"])
-            percentage = max(0, min(100, percentage))
-            self.battery_updated.emit(percentage)
-
-            camera_status = data.get("camera_status", "unknown")
-            self.camera_status_updated.emit(camera_status)
-
-            charging = data.get("charging", 0)
-            self.charging_status_updated.emit(charging)
+            status.battery_level = max(0, min(100, percentage))
+            status.camera_status = data.get("camera_status", "unknown")
+            status.video_addr = data.get("video_addr", "0.0.0.0")
+            status.charging = data.get("charging", 0)
+            status.video_on = data.get("video", 0)
+            status.microphone_on = data.get("microphone", 0)
+            self.status_updated.emit(status)
 
         except (requests.RequestException, ValueError, KeyError) as exc:
             self.status_error.emit(str(exc))
@@ -49,12 +54,9 @@ class BatteryIcon(QWidget):
         self.charging = 0
         self.setMinimumSize(180, 60)
 
-    def set_percentage(self, value):
-        self.percentage = max(0, min(100, int(value)))
-        self.update()
-
-    def set_charging(self, value):
-        self.charging = bool(value)
+    def set_status(self, status: BatteryStatus):
+        self.percentage = status.battery_level
+        self.charging = bool(status.charging)
         self.update()
 
     def paintEvent(self, event):

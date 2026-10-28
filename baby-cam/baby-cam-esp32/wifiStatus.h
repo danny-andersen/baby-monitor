@@ -1,11 +1,13 @@
 #include <WebServer.h>
 
+#define WIFI_CHECK_INTERVAL 10000 // Interval of 10 second (1000 ms)
+
 WiFiMulti wifiMulti;
 
 WebServer server(8080);
 
 unsigned long lastWifiCheckMillis = 0;
-const long wifi_check_interval = 10000; // Interval of 10 second (1000 ms)
+
 // -------------------------
 // Status page
 // -------------------------
@@ -25,6 +27,9 @@ void handleRoot()
     json += ",";
     json += "\"camera_status\": ";
     json += pi_status_desc();
+    json += ",";
+    json += "\"video_addr\": ";
+    json += "\"" + video_ip + "\"";
     json += ",";
     json += "\"video\": ";
     json += video_power;
@@ -68,7 +73,7 @@ void setupWifi() {
     }
     // WiFi.mode(WIFI_STA);
     // WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
+    WiFi.setSleep(false);
     D_print("Connecting to WiFi");
 
     // while (WiFi.status() != WL_CONNECTED)
@@ -87,14 +92,14 @@ void setupWifi() {
         ap_name = WiFi.SSID();
         D_printf("\nIP address: %s, on AP: %s\n", audio_ip, ap_name);
         setupStatusWebServer();
+        lastWifiCheckMillis = millis();
     } 
 }
 
 void check_wifi() {
-    unsigned long currentMillis = millis();
-    if (lastWifiCheckMillis - currentMillis > wifi_check_interval) {
-        //If we dont have wifi check to see if it is now up
-        lastWifiCheckMillis = currentMillis;
+    if (millis() - lastWifiCheckMillis > WIFI_CHECK_INTERVAL) {
+        D_printf("Heap=%u, RSSI=%d dBm \n", ESP.getFreeHeap(), WiFi.RSSI());
+        lastWifiCheckMillis = millis();
         if (wifiMulti.run() == WL_CONNECTED) {
             if (!wifi_connected) {
                 //We have restarted Wifi
@@ -103,6 +108,7 @@ void check_wifi() {
                 D_print("IP address: ");
                 D_println(WiFi.localIP());
                 setupStatusWebServer();
+                // notifyIPChange();
             }
         } else {
             //Lost connection

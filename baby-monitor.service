@@ -1,5 +1,8 @@
 [Unit]
 Description=Service to provide a GUI that shows a baby cam and various control buttons and status
+After=multi-user.target
+Wants=network-online.target
+
 
 [Service]
 User=danny

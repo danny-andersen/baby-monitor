@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import os
+import socket
+
 import serial
 import subprocess
 import requests
@@ -38,6 +40,23 @@ def send_status():
 
     ser.write(f"<OK,CAMERA={camera}>\n".encode())
               
+
+def get_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # Doesn't actually send anything
+        s.connect(("8.8.8.8", 80))
+
+        ip = s.getsockname()[0]
+
+        s.close()
+
+        return ip
+
+    except Exception:
+        return "UNKNOWN"
+    
 while True:
     try:
         line = ser.readline().decode(
@@ -71,7 +90,9 @@ while True:
                     "-h",
                     "now"
                 ])
-
+            elif line == "<GET_IP>":
+                ip = get_ip()
+                ser.write(f"<IP={ip}>\n".encode("ascii"))
             else:
                 ser.write(b"<UNKNOWN_COMMAND>\n")
 

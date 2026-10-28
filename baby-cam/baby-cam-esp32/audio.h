@@ -4,15 +4,15 @@
 #define BUFFER_SAMPLES 1024
 #define AUDIO_QUEUE_BLOCKS 64
 
-#define AUDIO_BUFFER_SAMPLES 32768
-#define STREAM_BLOCK_SAMPLES 512
+#define AUDIO_BUFFER_SAMPLES 32767
+#define STREAM_BLOCK_SAMPLES 4096
 #define MAX_AUDIO_CLIENTS 3
 
 WiFiServer audioServer(8081);
 
 int16_t audioBuffer[AUDIO_BUFFER_SAMPLES];
 
-volatile uint32_t writePos = 0;
+volatile uint32_t writeCount = 0;
 
 TaskHandle_t captureTaskHandle = nullptr;
 TaskHandle_t audioServerTaskHandle = nullptr;
@@ -112,15 +112,10 @@ void audioCaptureTask(void *parameter)
 
         for (size_t i = 0; i < samplesRead; i++)
         {
-            audioBuffer[writePos] =
+            audioBuffer[writeCount % AUDIO_BUFFER_SAMPLES] = 
                 (int16_t)(i2sBuffer[i] >> 14);
 
-            writePos++;
-
-            if (writePos >= AUDIO_BUFFER_SAMPLES)
-            {
-                writePos = 0;
-            }
+            writeCount++;
         }
     }
 }
@@ -141,10 +136,11 @@ void audioClientTask(void *parameter)
     client.println("Cache-Control: no-cache");
     client.println("Connection: close");
     client.println();
-
+    client.setNoDelay(true);
+    
     D_println("Audio client connected");
 
-    int16_t txBuffer[STREAM_BLOCK_SAMPLES];
+    static int16_t txBuffer[STREAM_BLOCK_SAMPLES];
 
     while (client.connected())
     {
@@ -154,33 +150,31 @@ void audioClientTask(void *parameter)
             break;
         }
 
-        uint32_t currentWritePos = writePos;
+        uint32_t currentWritePos = writeCount;
 
-        uint32_t distance =
-            (currentWritePos +
-             AUDIO_BUFFER_SAMPLES -
-             readPos) %
-            AUDIO_BUFFER_SAMPLES;
+        uint32_t backlog = writeCount - readPos;
 
-        if (distance > (AUDIO_BUFFER_SAMPLES - 1024))
-        {
-            D_println("Client too slow - resync");
+        // uint32_t distance =
+        //     (currentWritePos +
+        //      AUDIO_BUFFER_SAMPLES -
+        //      readPos) %
+        //     AUDIO_BUFFER_SAMPLES;
+
+       if (backlog > AUDIO_BUFFER_SAMPLES)
+       {
+            D_printf("Client too slow (backlog %d) - resync\n", backlog);
             readPos = currentWritePos;
             continue;
         }
 
         size_t count = 0;
 
-        while (readPos != currentWritePos &&
+        while (readPos < currentWritePos &&
                count < STREAM_BLOCK_SAMPLES)
         {
             txBuffer[count++] =
-                audioBuffer[readPos];
+                audioBuffer[readPos % AUDIO_BUFFER_SAMPLES];
             readPos++;
-            if (readPos >= AUDIO_BUFFER_SAMPLES)
-            {
-                readPos = 0;
-            }
         }
 
         if (count == 0)
@@ -194,20 +188,37 @@ void audioClientTask(void *parameter)
         size_t bytesToSend =
             count * sizeof(int16_t);
         size_t totalSent = 0;
+        // D_printf("Got %d bytes to send", bytesToSend);
+        // D_flush();
 
         while (totalSent < bytesToSend &&
                client.connected())
         {
+            uint32_t writeStart = millis();
+
             size_t sent =
                 client.write(
                     data + totalSent,
                     bytesToSend - totalSent);
-            if (sent == 0)
+            uint32_t elapsed =
+                millis() - writeStart;
+
+            if (elapsed > 100)
             {
-                vTaskDelay(1);
-                continue;
+                D_printf(
+                    "write blocked %lu ms\n",
+                    elapsed);
             }
-            totalSent += sent;
+            if (sent > 0)
+            {
+                totalSent += sent;
+            }
+            else if (elapsed > 5000)
+            {
+                D_println("Write timeout");
+                break;
+            }
+            vTaskDelay(1);        
         }
     }
     client.stop();
@@ -236,7 +247,7 @@ void audioServerTask(void *parameter)
 
             //
             // Start new listeners "live"
-            ctx->readPos = writePos;
+            ctx->readPos = writeCount;
 
             xTaskCreate(
                 audioClientTask,

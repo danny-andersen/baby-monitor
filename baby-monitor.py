@@ -1,4 +1,6 @@
+import os
 import sys
+import asyncio
 import subprocess
 import json
 from urllib.parse import urlparse
@@ -26,7 +28,8 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from audio_streamer import AudioStreamer
-from battery_status import BatteryIcon, BatteryStatusWorker
+from battery_status import BatteryIcon, BatteryStatusWorker, BatteryStatus
+from ble_discovery import get_ip
 
 
 class BarGraphWidget(QWidget):
@@ -236,6 +239,12 @@ class MainWindow(QWidget):
         self.video_enabled = True
         self.camera_up = False
         self.camera_status = ""
+        self.current_ap = ""
+        self.video_ip = "0.0.0.0"
+        self.camera_url = ""
+        self.camera_health = ""
+        self.audio_url = ""
+        self.status_url = ""
 
         self.setStyleSheet("background-color: LightGray;")
         
@@ -250,17 +259,8 @@ class MainWindow(QWidget):
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint
         )
-        self.load_urls_from_file()
-        if (self.camera_health == "") or (self.camera_url == ""):
-            QMessageBox.critical(
-                self,
-                "Error",
-                "Please provide camera and control URLs in url.txt"
-            )
-            sys.exit(1)
-        self.host = urlparse(self.camera_health).hostname
-
         
+                
         # --------------------
         # Left side
         # --------------------
@@ -297,7 +297,7 @@ class MainWindow(QWidget):
         """)
         self.web_view.loadStarted.connect(self.on_load_started)
 
-        self.video_error_label = QLabel(f"Loading Video feed\n\nPlease wait..")
+        self.video_error_label = QLabel(f"Connecting to remote device\n\nPlease wait...")
         self.video_error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_error_label.setStyleSheet("""
         QLabel {
@@ -323,36 +323,55 @@ class MainWindow(QWidget):
         layout.setSpacing(0)
         layout.addLayout(left_layout)
         layout.addWidget(self.video_container)
+        
+        self.camera_url = ""
+        self.status_url = ""
+        self.audio_url = ""
 
-        # --------------------
-        # Update timer (100 ms)
-        # --------------------
+        self.loadUrlTimer = QTimer(self)
+        self.loadUrlTimer.singleShot(100, self.check_and_load_urls)
 
         self.network_manager = QNetworkAccessManager()
         
-        self.camera_watchdog = QTimer(self)
-        self.camera_watchdog.timeout.connect(
-            self.check_camera
-        )
-        self.camera_watchdog.start(2000)
-        
-        self.audio_streamer = AudioStreamer(
-            self.audio_url,
-            gain=3.0
-        )
+    def check_and_load_urls(self):
+        if (self.status_url == "" or self.audio_url == ""):
+            self.loadUrlTimer.stop()
+            if self.load_urls():
+                if self.status_url != "":
+                    if not hasattr(self, "battery_timer"):
+                        self.start_battery_polling()
+                elif hasattr(self, "battery_timer"):
+                    self.battery_timer.stop()
+                    self.battery_timer = None
+                if self.camera_url != "":
+                    self.web_view.setUrl(QUrl(self.camera_url))
+                    if not hasattr(self, "camera_watchdog"):
+                        self.camera_watchdog = QTimer(self)
+                        self.camera_watchdog.timeout.connect(
+                            self.check_camera
+                        )
+                        self.camera_watchdog.start(2000)
 
-        self.audio_streamer.volume_changed.connect(
-            self.audio_level_changed
-        )
+                if self.audio_url != "":
+                    if hasattr(self, "audio_streamer"):
+                        self.audio_streamer.change_audio_url(self.audio_url)
+                    else:
+                        self.audio_streamer = AudioStreamer(
+                            self.audio_url,
+                            gain=3.0
+                        )
 
-        self.audio_streamer.status_changed.connect(
-            self.audio_status_changed
-        )        
+                        self.audio_streamer.volume_changed.connect(
+                            self.audio_level_changed
+                        )
 
-        self.audio_streamer.start_stream()
+                        self.audio_streamer.status_changed.connect(
+                            self.audio_status_changed
+                        )        
 
-        self.start_battery_polling()
-
+                        self.audio_streamer.start_stream()
+                    
+                
     def on_load_started(self):
         print("Video stream started")
 
@@ -374,7 +393,7 @@ class MainWindow(QWidget):
         # First check camera host is reachable via ping 
         try:
             result = subprocess.run(
-                ["ping", "-c", "1", "-W", "2", self.host],
+                ["ping", "-c", "1", "-W", "2", self.video_ip],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=3
@@ -410,7 +429,7 @@ class MainWindow(QWidget):
                 except Exception:
                     self.camera_up = False
             else:
-                # print(f"Ping failed for host {self.host}, returncode={result.returncode}")
+                # print(f"Ping failed for host {self.video_ip}, returncode={result.returncode}")
                 if self.camera_up:
                     self.update_camera_status("failed")
                     self.video_stack.setCurrentWidget(
@@ -445,7 +464,7 @@ class MainWindow(QWidget):
                     if self.camera_up == False:
                         print("Camera is back up, reloading video feed")
                         self.web_view.setUrl(QUrl(self.camera_url))
-                        self.camera_up = True
+                        # self.camera_up = True
                     self.video_stack.setCurrentWidget(self.web_view)
             except Exception as e:
                 print(f"Error parsing camera health response: {e}")
@@ -535,27 +554,28 @@ class MainWindow(QWidget):
         self.battery_worker = BatteryStatusWorker(
             self.status_url, self
         )
-        self.battery_worker.battery_updated.connect(
+        
+        self.battery_worker.status_updated.connect(
             self.update_battery
-        )
-        self.battery_worker.camera_status_updated.connect(
-            self.update_camera_status
         )
         self.battery_worker.status_error.connect(
             self.battery_status_error
-        )
-        self.battery_worker.charging_status_updated.connect(
-            self.icon.set_charging
         )
 
         self.battery_worker.start()
 
 
-    def update_battery(self, percentage):
-        self.icon.set_percentage(percentage)
+    def update_battery(self, battery_status: BatteryStatus):
+        self.icon.set_status(battery_status)
+        self.update_camera_url(battery_status.video_addr)
+        self.update_camera_status(battery_status.camera_status)
+
 
     def battery_status_error(self, message):
-        self.icon.set_percentage(0)
+        batt = BatteryStatus()
+        batt.battery_level = 0
+        batt.charging = 0
+        self.icon.set_status(batt)
         self.update_camera_status("unavailable")
         # print(f"Battery status request failed: {message}")
         
@@ -567,52 +587,141 @@ class MainWindow(QWidget):
         self.video_error_label.setText(
             f"Video feed {self.camera_status}\n\n{retry}"
         )
-
     # ==================================================
     # URL loader
     # ==================================================
 
+    def get_current_ssid(self):
 
-    def load_urls_from_file(self):
+        try:
+            return subprocess.check_output(
+                ["iwgetid", "-r"],
+                text=True
+            ).strip()
 
-        self.camera_url = ""
-        self.camera_health = ""
-        self.audio_url = ""
-        self.status_url = ""
+        except Exception:
+            return ""
+    
+    def load_urls(self):
+
+        current_ssid = self.get_current_ssid()
+
+        entries = {}
+
         try:
             with open("url.txt", "r", encoding="utf-8") as f:
-
                 for line in f:
                     line = line.strip()
-
                     if not line:
                         continue
 
                     parts = line.split(",", 1)
-
                     if len(parts) != 2:
                         continue
 
                     label = parts[0].strip().lower()
                     url = parts[1].strip()
 
-                    if label == "camera":
-                        self.camera_url = url
-                    elif label == "camera_health":
-                        self.camera_health = url
-                    elif label == "audio":
-                        self.audio_url = url
-                    elif label == "status":
-                        self.status_url = url
-            print(f"Camera URL : {self.camera_url}")
-            print(f"Camera Health URL: {self.camera_health}")
-            print(f"Audio URL: {self.audio_url}")
-            print(f"Status URL: {self.status_url}")
+                    if label == "apname":
+                        stored_ap = url
+                    else:
+                        entries[label] = url
+
+            if stored_ap == current_ssid:
+                # On the same access point - we can use
+                self.current_ap = stored_ap
+                self.camera_url = entries.get("camera")
+                self.camera_health = entries.get("camera_health")
+                self.audio_url = entries.get("audio")
+                self.status_url = entries.get("status")
+                self.video_ip = urlparse(self.camera_health).hostname
+                return True
+
+            print(
+                f"SSID changed from '{stored_ap}' "
+                f"to '{current_ssid}', using BLE discovery"
+            )
+            return self.refresh_urls_from_ble()        
 
         except Exception as e:
             print(f"Error reading url.txt: {e}")
+        
+        return False
+
+    def update_camera_url(self, ip_addr):
+        if self.video_ip != ip_addr and ip_addr != "0.0.0.0":
+            print(f"Updating camera ip from {self.video_ip} to {ip_addr}")
+            self.video_ip = ip_addr
+            self.camera_url = f"http://{self.video_ip}:8081/"
+            self.camera_health = f"http://{self.video_ip}:8081/health"
+            self.web_view.setUrl(QUrl(self.camera_url))
+            if not hasattr(self, "camera_watchdog"):
+                self.camera_watchdog = QTimer(self)
+                self.camera_watchdog.timeout.connect(
+                    self.check_camera
+                )
+                self.camera_watchdog.start(2000)
+            self.update_url_file()
+        
+    def update_url_file(self):
+        if self.camera_url != "" and self.audio_url != "":
+            try:
+                with open("url.txt", "w", encoding="utf-8") as f:
+                    f.write(f"APname,{self.current_ap}\n")
+                    f.write(f"camera,{self.camera_url}\n")
+                    f.write(f"camera_health,{self.camera_health}\n")
+                    f.write(f"audio,{self.audio_url}\n")
+                    f.write(f"status,{self.status_url}\n")
+            except Exception as e:
+                print(f"Error writing url.txt: {e}")
+                return False
+        
+    def refresh_urls_from_ble(self):
+
+        # Look for remote IP addresses
+        ble_data = asyncio.run(get_ip())
+
+        if not ble_data:
+            return False
+
+        ap_name = ble_data["ap_name"]
+        audio_ip = ble_data["audio_ip"]
+        
+        if (ap_name == "") or (audio_ip == ""):
+            print("Incomplete BLE data received")
+            return False
+        
+        self.current_ap = self.get_current_ssid()
+
+        if (self.current_ap != ap_name):
+            print(
+                f"Current SSID '{self.current_ap}' does not match "
+                f"BLE AP name '{ap_name}', cannot use BLE data"
+            )
+            return False
+
+        if audio_ip != "0.0.0.0":
+            self.audio_url = f"http://{audio_ip}:8081/"
+            self.status_url = f"http://{audio_ip}:8080/"
+        else:
+            self.audio_url = ""
+            self.status_url = ""
+
+        return True            
 
 def main():
+    # Completely strip GPU tasks from the WebEngine process
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        "--disable-gpu "
+        "--disable-software-rasterizer "
+        "--disable-gpu-compositing "
+        "--disable-vulkan"
+    )
+
+    # Force Qt to use its software rasterizer for the interface
+    os.environ["QT_FORCE_SOFTWARE_RENDER"] = "1"
+    os.environ["QSG_RHI_BACKEND"] = "software"
+
     app = QApplication(sys.argv)
 
     window = MainWindow()

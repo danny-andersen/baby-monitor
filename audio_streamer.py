@@ -46,11 +46,11 @@ class AudioStreamer(QThread):
     PREBUFFER_BLOCKS = 6
 
     # HTTP and reconnect handling
-    HTTP_CHUNK_SIZE = 2048
+    HTTP_CHUNK_SIZE = 4096
     HTTP_CONNECT_TIMEOUT = 5.0
     HTTP_READ_TIMEOUT = 2.0
     RECONNECT_DELAY = 1.0
-    SOURCE_TIMEOUT = 1.5
+    SOURCE_TIMEOUT = 5.0
 
     # Audio processing
     DEFAULT_GAIN = 2.0
@@ -111,6 +111,12 @@ class AudioStreamer(QThread):
     # Public interface
     # ---------------------------------------------------------
 
+    def change_audio_url(self, new_url):
+        if new_url != self.audio_url:
+            self.audio_url = new_url
+            self.stop_stream()
+            self.start_stream()
+            
     def start_stream(self):
         if self.isRunning():
             return
@@ -195,6 +201,11 @@ class AudioStreamer(QThread):
             return
         except queue.Full:
             pass
+
+        print(
+            f"QUEUE OVERFLOW: {q.qsize()}"
+        )
+
 
         try:
             q.get_nowait()
@@ -286,10 +297,20 @@ class AudioStreamer(QThread):
                             self.status_changed.emit(
                                 "Audio connected"
                             )
+                        
+                        last_chunk = time.monotonic()
 
                         for chunk in response.iter_content(
                             chunk_size=self.HTTP_CHUNK_SIZE
                         ):
+                            now = time.monotonic()
+                            gap = now - last_chunk
+                            if gap > 0.2:
+                                print(
+                                    f"iter_content gap {gap:.3f}s"
+                                )
+                            last_chunk = now                            
+    
                             if self._stop_event.is_set():
                                 break
 
@@ -634,8 +655,8 @@ class AudioStreamer(QThread):
             "-f", "S16_LE",
             "-c", str(self.OUTPUT_CHANNELS),
             "-r", str(self.SAMPLE_RATE),
-            "--buffer-size=4096",
-            "--period-size=1024",
+            "--buffer-size=131072",
+            "--period-size=8192",
         ]
 
         player = subprocess.Popen(
@@ -667,7 +688,16 @@ class AudioStreamer(QThread):
         if player is None or player.stdin is None:
             raise OSError("Audio Player is not running")
 
+        start_time = time.monotonic()
         player.stdin.write(samples.tobytes())
+        player.stdin.flush()
+        dt = time.monotonic() - start_time
+
+        if dt > 0.1:
+            print(
+                f"aplay write blocked "
+                f"{dt:.3f}s"
+            )
 
     def _stop_player(self):
         with self._player_lock:
