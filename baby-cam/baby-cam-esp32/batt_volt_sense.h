@@ -157,9 +157,9 @@ void power_control()
 {
     get_batt_percentage();
     charging = digitalRead(CHARGING_PIN);
-    if (wifi_connected && !video_power && current_batt_perc >= VIDEO_ON_THRESHOLD)
+    if (wifi_connected && !video_power && video_on_requested && current_batt_perc >= VIDEO_ON_THRESHOLD)
     {
-        // Turn PI on, as battery voltage sufficient and we have wifi
+        // Turn PI on, as battery voltage sufficient and we have wifi and it has been requested
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         // Turn off power drain circuit as turning on PI
         digitalWrite(PI_POWER_PIN, 1);
@@ -167,9 +167,10 @@ void power_control()
         pi_status = BOOTING;
         pi_shutdown_time = 0;
         pi_shutdown_request_time = 0;
+        video_on_requested = false;
         D_println("PI on, Drain off");
     }
-    if (video_power && (current_batt_perc <= VIDEO_OFF_THRESHOLD || !wifi_connected))
+    if (video_power && (video_off_requested || current_batt_perc <= VIDEO_OFF_THRESHOLD || !wifi_connected))
     {
         // Battery level too low or we dont have wifi, send shutdown command to PI but only if UP and responding
         if (pi_status == UP) {
@@ -208,7 +209,7 @@ void power_control()
         mic_power = 1;
         pi_shutdown_time = 0;
         pi_shutdown_request_time = 0;
-        pi_status = SHUTDOWN;
+        pi_status = POWERED_OFF;
         D_println("PI off");
     }
 

@@ -26,6 +26,7 @@ from PyQt6.QtNetwork import (
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+import requests
 
 from audio_streamer import AudioStreamer
 from battery_status import BatteryIcon, BatteryStatusWorker, BatteryStatus
@@ -583,6 +584,10 @@ class MainWindow(QWidget):
         self.camera_status = status
         retry = "Retrying..." if "available" in self.camera_status else ""
         retry = "Waiting..." if "starting" in self.camera_status else retry
+        if "powered off" in self.camera_status and "battery" not in self.camera_status:
+            # Only request power on if the camera is powered off, not if it's a battery issue
+            self.requestPowerOnCamera()
+            retry = "powered off - requesting power on..."
         
         self.video_error_label.setText(
             f"Video feed {self.camera_status}\n\n{retry}"
@@ -662,6 +667,22 @@ class MainWindow(QWidget):
                 )
                 self.camera_watchdog.start(2000)
             self.update_url_file()
+        
+    def requestPowerOnCamera(self):
+        try:
+            powerOnUrl = f"{self.status_url}video?req=1" 
+            print(f"Requesting power on for camera via {powerOnUrl}")
+            response = requests.get(
+                powerOnUrl, timeout=10
+            )
+            response.raise_for_status()
+            if response.status_code == 200:
+                print("Power on request sent successfully")
+            else:
+                print(f"Power on request failed: {response.iter_content()}")
+                self.update_camera_status("unavailable - request to power on failed")           
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            self.update_camera_status("unavailable - request to power on failed: " + str(exc))
         
     def update_url_file(self):
         if self.camera_url != "" and self.audio_url != "":

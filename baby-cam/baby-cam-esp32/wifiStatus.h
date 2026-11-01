@@ -58,8 +58,34 @@ void handleRoot()
     server.send(200, "text/json", json);
 }
 
+void handleVideoRequest() {
+  D_print("Video request: ");
+  if (server.hasArg("req")) {
+    // Retrieve the value of the "req" argument
+    String reqValue = server.arg("req");
+    D_printf("req = %s", reqValue);
+    if (reqValue == "1") {
+      video_on_requested = true;
+      server.send(200, "text/plain", "Success: Video power on");
+    } 
+    else if (reqValue == "0") {
+      video_off_requested = true;
+      server.send(200, "text/plain", "Success: Video power off");
+    } 
+    else {
+      server.send(400, "text/plain", "Error");
+    }
+  } 
+  else {
+    // If the "req" argument is missing entirely
+    server.send(400, "text/plain", "Bad Request");
+  }
+  D_println();
+}
+
 void setupStatusWebServer() {
     server.on("/", HTTP_GET, handleRoot);
+    server.on("/video", HTTP_GET, handleVideoRequest);
     server.begin();
 
     D_println("HTTP server started");

@@ -73,6 +73,8 @@ bool wifi_connected = false; //Whether we have wifi or not
 int current_batt_perc = 0;  // Currently calculated battery percentage
 float current_batt_volts = 0.0;
 bool video_power = false; //Video off until PI is powered on
+bool video_on_requested = false; //Wait for the video on to be requested from the monitor
+bool video_off_requested = false; //Turn off video if on
 bool mic_power = true; //Mic power is always on until power below low threshold
 int charging = 0; //Whether powered externally or not
 bool drain_power = false; //Whether the circuit to put an extra power load on is on
@@ -88,7 +90,9 @@ String audio_ip = "0.0.0.0"; //Not set
 String video_ip = "0.0.0.0";
 bool request_pi_addr = false; //Set to true when PI is UP
 String ap_name = SOFT_AP_NAME;
+volatile uint32_t audioClients = 0; //Number of audio clients connected to control start / stop of BLE
 
+#if DEBUG
 String pi_status_str() {
   String status_str = "";
   switch(pi_status) {
@@ -113,19 +117,24 @@ String pi_status_str() {
     case SHUTTING_DOWN:
       status_str = "SHUTTING_DOWN";
       break;
-    case SHUTDOWN:
-      status_str = "SHUTDOWN";
-      break;
   }
   return status_str;
 }
+#else
+String pi_status_str() {}
+#endif
 
 String pi_status_desc() {
   String status_str = "";
   switch(pi_status) {
     case UNKNOWN:
     case POWERED_OFF:
-      status_str = "\"powered off\"";
+      if (current_batt_perc <= VIDEO_OFF_THRESHOLD) {
+        status_str = "\"powered off (low battery)\"";
+      } 
+      else {
+        status_str = "\"powered off\"";
+      }
       break;
     case BOOTING:
       status_str = "\"starting up\"";
@@ -144,9 +153,6 @@ String pi_status_desc() {
     case SHUTTING_DOWN:
     case SHUTDOWN_REQUESTED:
       status_str = "\"stopping\"";
-      break;
-    case SHUTDOWN:
-      status_str = "\"powered off\"";
       break;
   }
   return status_str;
