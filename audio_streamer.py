@@ -41,8 +41,8 @@ class AudioStreamer(QThread):
     RAW_BLOCK_BYTES = BLOCK_SAMPLES * SAMPLE_WIDTH_BYTES
 
     # Queue capacities
-    RAW_QUEUE_BLOCKS = 32
-    PLAYBACK_QUEUE_BLOCKS = 32
+    RAW_QUEUE_BLOCKS = 16
+    PLAYBACK_QUEUE_BLOCKS = 16
     PREBUFFER_BLOCKS = 6
 
     # HTTP and reconnect handling
@@ -50,7 +50,7 @@ class AudioStreamer(QThread):
     HTTP_CONNECT_TIMEOUT = 5.0
     HTTP_READ_TIMEOUT = 2.0
     RECONNECT_DELAY = 1.0
-    SOURCE_TIMEOUT = 5.0
+    SOURCE_TIMEOUT = 3.0
 
     # Audio processing
     DEFAULT_GAIN = 2.0
@@ -201,11 +201,6 @@ class AudioStreamer(QThread):
             return
         except queue.Full:
             pass
-
-        print(
-            f"QUEUE OVERFLOW: {q.qsize()}"
-        )
-
 
         try:
             q.get_nowait()
@@ -655,8 +650,8 @@ class AudioStreamer(QThread):
             "-f", "S16_LE",
             "-c", str(self.OUTPUT_CHANNELS),
             "-r", str(self.SAMPLE_RATE),
-            "--buffer-size=131072",
-            "--period-size=8192",
+            "--buffer-size=16384",
+            "--period-size=2048",
         ]
 
         player = subprocess.Popen(
