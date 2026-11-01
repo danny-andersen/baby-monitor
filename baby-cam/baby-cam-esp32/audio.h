@@ -5,7 +5,7 @@
 #define AUDIO_QUEUE_BLOCKS 64
 
 #define AUDIO_BUFFER_SAMPLES 32767
-#define STREAM_BLOCK_SAMPLES 4096
+#define STREAM_BLOCK_SAMPLES 2048
 #define MAX_AUDIO_CLIENTS 3
 
 WiFiServer audioServer(8081);
@@ -140,7 +140,11 @@ void audioClientTask(void *parameter)
     
     D_println("Audio client connected");
 
-    static int16_t txBuffer[STREAM_BLOCK_SAMPLES];
+    int16_t *txBuffer =
+        (int16_t *)heap_caps_malloc(
+            STREAM_BLOCK_SAMPLES *
+            sizeof(int16_t),
+            MALLOC_CAP_8BIT);
 
     while (client.connected())
     {
@@ -222,6 +226,10 @@ void audioClientTask(void *parameter)
         }
     }
     client.stop();
+    audioClients--;
+    if (txBuffer != NULL) {
+        heap_caps_free(txBuffer);
+    }
     D_println("Audio client disconnected");
     vTaskDelete(nullptr);
 }
@@ -239,6 +247,7 @@ void audioServerTask(void *parameter)
         {
             // Only start a new client if mic is powered on
             D_println("New audio listener");
+            audioClients++;
 
             AudioClientContext *ctx =
                 new AudioClientContext;
