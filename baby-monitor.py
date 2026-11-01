@@ -522,6 +522,7 @@ class MainWindow(QWidget):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
+            self.requestPowerOffCamera()
             self.shutdown_pi()
 
     def shutdown_pi(self):
@@ -683,6 +684,22 @@ class MainWindow(QWidget):
                 self.update_camera_status("unavailable - request to power on failed")           
         except (requests.RequestException, ValueError, KeyError) as exc:
             self.update_camera_status("unavailable - request to power on failed: " + str(exc))
+
+    def requestPowerOffCamera(self):
+        try:
+            powerOnUrl = f"{self.status_url}video?req=0" 
+            print(f"Requesting power off for camera via {powerOnUrl}")
+            response = requests.get(
+                powerOnUrl, timeout=10
+            )
+            response.raise_for_status()
+            if response.status_code == 200:
+                print("Power off request sent successfully")
+            else:
+                print(f"Power off request failed: {response.iter_content()}")
+                self.update_camera_status("unavailable - request to power off failed")           
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            self.update_camera_status("unavailable - request to power off failed: " + str(exc))
         
     def update_url_file(self):
         if self.camera_url != "" and self.audio_url != "":
