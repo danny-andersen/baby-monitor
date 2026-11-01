@@ -29,10 +29,10 @@ void setup()
     setupInfraDriver();
 
     setupWifi();
-    setupBluetooth();
     setupStatusWebServer();
     setupI2S();
     setupAudioServer();
+    startBLE();
     setupPiSerialComms();
     D_println("Set up complete");
 }
@@ -55,6 +55,7 @@ void loop()
             request_pi_addr = false;
         }
     }
+    checkBLE();
     vTaskDelay(pdMS_TO_TICKS(10));
     // D_printf("Batttery perc: %f\n", batt_percentage);
     // delay(1000);
