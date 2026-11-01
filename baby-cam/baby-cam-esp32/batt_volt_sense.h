@@ -54,6 +54,11 @@ void power_setup()
     //Output controlling relay to power the PI for the video. Start with it off until we are sure we have enough battery to run it
     pinMode(PI_POWER_PIN, OUTPUT);
     digitalWrite(PI_POWER_PIN, 0);
+
+    //Mic and video on/off controls as digin pullups
+    pinMode(VIDEO_ON_PIN, INPUT_PULLUP);
+    pinMode(MIC_ON_PIN, INPUT_PULLUP);
+
     //This senses the external USB +5v line to determine whether we are on external power or not
     pinMode(CHARGING_PIN, INPUT);
 
@@ -157,7 +162,9 @@ void power_control()
 {
     get_batt_percentage();
     charging = digitalRead(CHARGING_PIN);
-    if (wifi_connected && !video_power && video_on_requested && current_batt_perc >= VIDEO_ON_THRESHOLD)
+    video_on = digitalRead(VIDEO_ON_PIN);
+    mic_on = digitalRead(MIC_ON_PIN);
+    if (wifi_connected && video_on && !video_power && video_on_requested && current_batt_perc >= VIDEO_ON_THRESHOLD)
     {
         // Turn PI on, as battery voltage sufficient and we have wifi and it has been requested
         digitalWrite(CURRENT_DRAIN_PIN, 0);
@@ -170,7 +177,7 @@ void power_control()
         video_on_requested = false;
         D_println("PI on, Drain off");
     }
-    if (video_power && (video_off_requested || current_batt_perc <= VIDEO_OFF_THRESHOLD || !wifi_connected))
+    if (video_power && (!video_on || video_off_requested || current_batt_perc <= VIDEO_OFF_THRESHOLD || !wifi_connected))
     {
         // Battery level too low or we dont have wifi, send shutdown command to PI but only if UP and responding
         if (pi_status == UP) {
@@ -180,7 +187,7 @@ void power_control()
             pi_shutdown_time = millis();
         }
     }
-    if (!video_power && !drain_power && current_batt_perc >= POWER_LOW_THRESHOLD)
+    if (!video_power && mic_power && !drain_power && current_batt_perc >= POWER_LOW_THRESHOLD)
     {
         // Turn on power drain circuit as PI is off
         digitalWrite(CURRENT_DRAIN_PIN, 1);
@@ -189,7 +196,7 @@ void power_control()
     }
     if (current_batt_perc <= POWER_LOW_THRESHOLD)
     {
-        // Turn off power drain circuit.
+        // Battery low - turn off power drain circuit.
         // This will cause the battery protection to turn off all power, as the current drawn will be below a threshold
         digitalWrite(CURRENT_DRAIN_PIN, 0);
         //Make sure PI is off

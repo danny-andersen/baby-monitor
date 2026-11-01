@@ -36,9 +36,11 @@
 #define CURRENT_DRAIN_PIN 3 // Keeps the battery protection from turning off the power when only the ESP is running
 #define DARK_DET_PIN 4 // Determines the ambient light level - 0.5V very bright, 2V average 2.9V very dart
 #define BATT_VOLTAGE_PIN 6
+#define VIDEO_ON_PIN 7  //Pull this low to turn off the camera (by shutting down the PI)
 #define PI_POWER_PIN 14 // Controls power to PI via a relay: low is on, high is off
 #define CHARGING_PIN 18 //Set high if battery is charging, i.e. on external power
 #define INFRARED_LED_DRIVER 19 //Output to drive Infra red LED lights on
+#define MIC_ON_PIN 20 //Pull this low to turn off the microphone
 
 //Power thresholds
 #define VIDEO_ON_THRESHOLD 60
@@ -72,25 +74,32 @@ enum PiStatus {
 bool wifi_connected = false; //Whether we have wifi or not
 int current_batt_perc = 0;  // Currently calculated battery percentage
 float current_batt_volts = 0.0;
+
 bool video_power = false; //Video off until PI is powered on
 bool video_on_requested = false; //Wait for the video on to be requested from the monitor
 bool video_off_requested = false; //Turn off video if on
+bool video_on = true; //Whether the Video switch is set to on or off
 bool mic_power = true; //Mic power is always on until power below low threshold
+bool mic_on = true; //Whether the Mic switch is set to on or off
+volatile uint32_t audioClients = 0; //Number of audio clients connected to control start / stop of BLE
+
 int charging = 0; //Whether powered externally or not
 bool drain_power = false; //Whether the circuit to put an extra power load on is on
+
 enum PiStatus pi_status = POWERED_OFF;   //State of PI
 String camera_status = "Unknown"; //State of camera service running on the PI
 unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
 unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
 unsigned long last_req_time = 0;  //Time last request was sent
 unsigned long last_status_time = 0;  //Time last status command was sent
+
 int light_level = 0; //Level of the ambient light (0-100)
 bool infrared_lights_on = false; //Whether the led lights are on or off
+
 String audio_ip = "0.0.0.0"; //Not set
 String video_ip = "0.0.0.0";
 bool request_pi_addr = false; //Set to true when PI is UP
 String ap_name = SOFT_AP_NAME;
-volatile uint32_t audioClients = 0; //Number of audio clients connected to control start / stop of BLE
 
 #if DEBUG
 String pi_status_str() {
