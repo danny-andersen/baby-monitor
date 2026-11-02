@@ -501,7 +501,7 @@ class MainWindow(QWidget):
 
     def audio_status_changed(self, status):
         # print(f"Audio status changed: {status} mic_sw={self.remote_status.mic_sw}")
-        if self.remote_status.mic_sw == 0:
+        if "playing" not in status and self.remote_status.mic_sw == 0:
             status = "Microphone switched off"
         self.bar_graph.set_audio_status(status)
             
@@ -552,7 +552,7 @@ class MainWindow(QWidget):
             self.fetch_remote_status
         )
         self.fetch_remote_status()
-        self.remote_timer.start(5000)
+        self.remote_timer.start(2000)
 
 
     def fetch_remote_status(self):
