@@ -49,7 +49,7 @@ class AudioStreamer(QThread):
     HTTP_CHUNK_SIZE = 4096
     HTTP_CONNECT_TIMEOUT = 5.0
     HTTP_READ_TIMEOUT = 2.0
-    RECONNECT_DELAY = 1.0
+    RECONNECT_DELAY = 2.0
     SOURCE_TIMEOUT = 3.0
 
     # Audio processing

@@ -52,7 +52,7 @@
 #define TIME_TO_SLEEP  60          /* Time ESP32 will go to sleep (in seconds) */
 
 #define PI_REQUEST_TIME 10000 /* How often to send a status check to the PI */
-#define PI_SHUTDOWN_DELAY 60000  /* Time allowed for PI to shutdown */
+#define PI_SHUTDOWN_DELAY 20000  /* Time allowed for PI to shutdown */
 #define PI_RESPONSE_TIME 5000 /* Time allowed for PI to respond to a command*/ 
 
 //INFRA RED LED LIGHT thresholds (0 is pitch black, 100 is very bright)
@@ -78,13 +78,13 @@ float current_batt_volts = 0.0;
 bool video_power = false; //Video off until PI is powered on
 bool video_on_requested = false; //Wait for the video on to be requested from the monitor
 bool video_off_requested = false; //Turn off video if on
-bool video_on = true; //Whether the Video switch is set to on or off
+bool video_sw = true; //Whether the Video switch is set to on or off
 bool mic_power = true; //Mic power is always on until power below low threshold
-bool mic_on = true; //Whether the Mic switch is set to on or off
+bool mic_sw = true; //Whether the Mic switch is set to on or off
 volatile uint32_t audioClients = 0; //Number of audio clients connected to control start / stop of BLE
 
 int charging = 0; //Whether powered externally or not
-bool drain_power = false; //Whether the circuit to put an extra power load on is on
+int drain_power = 0; //Whether the circuit to put an extra power load on is on
 
 enum PiStatus pi_status = POWERED_OFF;   //State of PI
 String camera_status = "Unknown"; //State of camera service running on the PI

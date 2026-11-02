@@ -10,15 +10,15 @@ bool ble_on = false;
 uint32_t ble_on_time = 0; //Ensure BLE is turned on for a period, otherwise it causes a core dump
 
 void set_ip_chara() {
-  String json = "{";
-  json += "\"ap_name\": \"";
-  json += ap_name;
-  json += "\",";
-  json += "\"audio_ip\": \"";
-  json += audio_ip;
-  json += "\"";
-  json += "}";
-  ipStatusChar->setValue(json);
+    String json = "{";
+        json += "\"ap_name\": \"";
+        json += ap_name;
+        json += "\",";
+        json += "\"audio_ip\": \"";
+        json += audio_ip;
+        json += "\"";
+        json += "}";
+    ipStatusChar->setValue(json);
 }
 
 class ServerCallbacks : public NimBLEServerCallbacks
@@ -36,8 +36,7 @@ public:
                       int reason)
     {
         Serial.println("BLE client disconnected");
-
-        // NimBLEDevice::startAdvertising();
+        NimBLEDevice::startAdvertising();
     }
 };
 
@@ -110,6 +109,8 @@ void checkBLE() {
 }
 
 void notifyIPChange() {
-    set_ip_chara();
+    if (ble_on) {
+        set_ip_chara();
+    }
     // ipStatusChar->notify();    
 }

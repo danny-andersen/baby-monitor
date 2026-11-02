@@ -37,13 +37,15 @@ void requestPiAddr() {
 
 void checkPiResponse() {
   unsigned long currentMillis = millis();
-  static String rxLine;
+  static char rxBuff[32];
+  int cnt = 0;
   while (PI_SERIAL.available())
   {
     char c = PI_SERIAL.read();
-
     if (c == '\n')
     {
+        rxBuff[cnt] = '\0';
+        String rxLine = String(rxBuff);
         rxLine.trim();
 
         last_req_time = 0;
@@ -86,7 +88,7 @@ void checkPiResponse() {
     }
     else
     {
-        rxLine += c;
+        rxBuff[cnt++] = c;
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }    

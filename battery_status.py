@@ -9,17 +9,18 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal
 
-class BatteryStatus:
+class RemoteStatus:
     battery_level = 0
     charging = 0
     camera_status = ""
     video_addr = ""
     video_on = 0
+    video_sw = 1
     microphone_on = 0
-    
+    mic_sw = 1
 
-class BatteryStatusWorker(QThread):
-    status_updated = pyqtSignal(BatteryStatus)
+class RemoteStatusWorker(QThread):
+    status_updated = pyqtSignal(RemoteStatus)
     status_error = pyqtSignal(str)
 
     def __init__(self, status_url, parent=None):
@@ -32,7 +33,7 @@ class BatteryStatusWorker(QThread):
                 self.status_url, timeout=10
             )
             response.raise_for_status()
-            status = BatteryStatus()
+            status = RemoteStatus()
             data = response.json()
             percentage = int(data["battery_perc"])
             status.battery_level = max(0, min(100, percentage))
@@ -40,7 +41,9 @@ class BatteryStatusWorker(QThread):
             status.video_addr = data.get("video_addr", "0.0.0.0")
             status.charging = data.get("charging", 0)
             status.video_on = data.get("video", 0)
+            status.video_sw = data.get("video_sw", 0)
             status.microphone_on = data.get("microphone", 0)
+            status.mic_sw = data.get("mic_sw", 0)
             self.status_updated.emit(status)
 
         except (requests.RequestException, ValueError, KeyError) as exc:
@@ -54,7 +57,7 @@ class BatteryIcon(QWidget):
         self.charging = 0
         self.setMinimumSize(180, 60)
 
-    def set_status(self, status: BatteryStatus):
+    def set_status(self, status: RemoteStatus):
         self.percentage = status.battery_level
         self.charging = bool(status.charging)
         self.update()

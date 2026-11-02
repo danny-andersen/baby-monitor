@@ -34,8 +34,14 @@ void handleRoot()
     json += "\"video\": ";
     json += video_power;
     json += ",";
+    json += "\"video_sw\": ";
+    json += video_sw;
+    json += ",";
     json += "\"microphone\": ";
     json += mic_power;
+    json += ",";
+    json += "\"mic_sw\": ";
+    json += mic_sw;
     json += ",";
     json += "\"infrared_led\": ";
     json += infrared_lights_on;

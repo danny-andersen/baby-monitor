@@ -29,7 +29,7 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 import requests
 
 from audio_streamer import AudioStreamer
-from battery_status import BatteryIcon, BatteryStatusWorker, BatteryStatus
+from battery_status import BatteryIcon, RemoteStatusWorker, RemoteStatus
 from ble_discovery import get_ip
 
 
@@ -246,6 +246,7 @@ class MainWindow(QWidget):
         self.camera_health = ""
         self.audio_url = ""
         self.status_url = ""
+        self.remote_status = RemoteStatus()
 
         self.setStyleSheet("background-color: LightGray;")
         
@@ -330,20 +331,21 @@ class MainWindow(QWidget):
         self.audio_url = ""
 
         self.loadUrlTimer = QTimer(self)
-        self.loadUrlTimer.singleShot(100, self.check_and_load_urls)
+        self.loadUrlTimer.timeout.connect(self.check_and_load_urls)
+        self.loadUrlTimer.start(100)
 
         self.network_manager = QNetworkAccessManager()
         
     def check_and_load_urls(self):
+        self.loadUrlTimer.stop()
         if (self.status_url == "" or self.audio_url == ""):
-            self.loadUrlTimer.stop()
             if self.load_urls():
                 if self.status_url != "":
-                    if not hasattr(self, "battery_timer"):
-                        self.start_battery_polling()
-                elif hasattr(self, "battery_timer"):
-                    self.battery_timer.stop()
-                    self.battery_timer = None
+                    if not hasattr(self, "remote_timer"):
+                        self.start_remote_polling()
+                elif hasattr(self, "remote_timer"):
+                    self.remote_timer.stop()
+                    self.remote_timer = None
                 if self.camera_url != "":
                     self.web_view.setUrl(QUrl(self.camera_url))
                     if not hasattr(self, "camera_watchdog"):
@@ -371,6 +373,10 @@ class MainWindow(QWidget):
                         )        
 
                         self.audio_streamer.start_stream()
+            else:
+                print("Failed to load URLs, retrying in 2 seconds...")
+                self.loadUrlTimer.start(2000)
+                        
                     
                 
     def on_load_started(self):
@@ -494,7 +500,9 @@ class MainWindow(QWidget):
         self.bar_graph.set_value(value)
 
     def audio_status_changed(self, status):
-        print(f"Audio status changed: {status}")
+        # print(f"Audio status changed: {status} mic_sw={self.remote_status.mic_sw}")
+        if self.remote_status.mic_sw == 0:
+            status = "Microphone switched off"
         self.bar_graph.set_audio_status(status)
             
     # ==================================================
@@ -537,44 +545,45 @@ class MainWindow(QWidget):
     # Remote Battery status
     # ==================================================
         
-    def start_battery_polling(self):
+    def start_remote_polling(self):
         # Fetch immediately, then once every minute
-        self.battery_timer = QTimer(self)
-        self.battery_timer.timeout.connect(
-            self.fetch_battery_status
+        self.remote_timer = QTimer(self)
+        self.remote_timer.timeout.connect(
+            self.fetch_remote_status
         )
-        self.fetch_battery_status()
-        self.battery_timer.start(5000)
+        self.fetch_remote_status()
+        self.remote_timer.start(5000)
 
 
-    def fetch_battery_status(self):
+    def fetch_remote_status(self):
         # Avoid overlapping requests
-        if hasattr(self, "battery_worker"):
-            if self.battery_worker.isRunning():
+        if hasattr(self, "remote_worker"):
+            if self.remote_worker.isRunning():
                 return
 
-        self.battery_worker = BatteryStatusWorker(
+        self.remote_worker = RemoteStatusWorker(
             self.status_url, self
         )
         
-        self.battery_worker.status_updated.connect(
-            self.update_battery
+        self.remote_worker.status_updated.connect(
+            self.update_remote_status
         )
-        self.battery_worker.status_error.connect(
+        self.remote_worker.status_error.connect(
             self.battery_status_error
         )
 
-        self.battery_worker.start()
+        self.remote_worker.start()
 
 
-    def update_battery(self, battery_status: BatteryStatus):
-        self.icon.set_status(battery_status)
-        self.update_camera_url(battery_status.video_addr)
-        self.update_camera_status(battery_status.camera_status)
+    def update_remote_status(self, remote_status: RemoteStatus):
+        self.remote_status = remote_status
+        self.icon.set_status(remote_status)
+        self.update_camera_url(remote_status.video_addr)
+        self.update_camera_status(remote_status.camera_status)
 
 
     def battery_status_error(self, message):
-        batt = BatteryStatus()
+        batt = RemoteStatus()
         batt.battery_level = 0
         batt.charging = 0
         self.icon.set_status(batt)
@@ -585,14 +594,18 @@ class MainWindow(QWidget):
         self.camera_status = status
         retry = "Retrying..." if "available" in self.camera_status else ""
         retry = "Waiting..." if "starting" in self.camera_status else retry
-        if "powered off" in self.camera_status and "battery" not in self.camera_status:
-            # Only request power on if the camera is powered off, not if it's a battery issue
+        if "powered off" in self.camera_status and "battery" not in self.camera_status and self.remote_status.video_sw == 1:
+            # Only request power on if the camera is powered off, not if it's a battery low issue, and if the video switch is on (to avoid turning on camera when video is off)
             self.requestPowerOnCamera()
-            retry = "powered off - requesting power on..."
-        
-        self.video_error_label.setText(
-            f"Video feed {self.camera_status}\n\n{retry}"
-        )
+            retry = "Requesting power on..."
+        if self.remote_status.video_sw == 0:
+            self.video_error_label.setText(
+                f"Video feed is switched off\n"
+            )
+        else:
+            self.video_error_label.setText(
+                f"Video feed {self.camera_status}\n\n{retry}"
+            )
     # ==================================================
     # URL loader
     # ==================================================

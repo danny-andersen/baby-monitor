@@ -148,7 +148,7 @@ void audioClientTask(void *parameter)
 
     while (client.connected())
     {
-        if (!mic_power || !mic_on)
+        if (!mic_power || !mic_sw)
         {
             // Low power or mic switched off - close the stream
             break;
@@ -243,7 +243,7 @@ void audioServerTask(void *parameter)
     while (true)
     {
         WiFiClient client = audioServer.available();
-        if (client && mic_on && mic_power)
+        if (client && mic_sw && mic_power)
         {
             // Only start a new client if mic switch is set to on and we have enough battery (mic_power == 1)
             D_println("New audio listener");
