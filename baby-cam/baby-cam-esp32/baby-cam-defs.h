@@ -1,4 +1,4 @@
-#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_Serial Serial
@@ -138,7 +138,7 @@ String pi_status_desc() {
   switch(pi_status) {
     case UNKNOWN:
     case POWERED_OFF:
-      if (current_batt_perc <= VIDEO_OFF_THRESHOLD) {
+      if (current_batt_perc <= VIDEO_ON_THRESHOLD) {
         status_str = "\"powered off (low battery)\"";
       } 
       else {
