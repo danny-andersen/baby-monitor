@@ -299,7 +299,7 @@
     <diylc.misc.Label>
       <id>9eda753f-e6bb-4a03-a551-39dae7d728db</id>
       <name>LAB4</name>
-      <point x="1.3" y="1.2"/>
+      <point x="1.3" y="1.3"/>
       <text>LDR OUT</text>
       <font name="Dialog.plain" size="14" style="0"/>
       <color hex="000000"/>
@@ -310,7 +310,7 @@
     <diylc.misc.Label>
       <id>e4a3c89d-8d43-4c66-b31b-d28c21201e06</id>
       <name>LAB5</name>
-      <point x="1.3" y="1.3"/>
+      <point x="1.3" y="1.2"/>
       <text>IR IN</text>
       <font name="Dialog.plain" size="14" style="0"/>
       <color hex="000000"/>
