@@ -42,6 +42,26 @@
       <stripColor hex="da8a67"/>
       <orientation>HORIZONTAL</orientation>
     </diylc.boards.VeroBoard>
+    <diylc.electromechanical.DrillHole>
+      <id>4463b80f-3c16-4fff-a308-c456f4f2f37d</id>
+      <name>Hole1</name>
+      <alphaPercent>
+        <value>100</value>
+      </alphaPercent>
+      <diameter value="2.0" unit="mm"/>
+      <color hex="000000"/>
+      <point x="1.8" y="1.655"/>
+    </diylc.electromechanical.DrillHole>
+    <diylc.electromechanical.DrillHole>
+      <id>6a8dd09d-a507-4ffa-80a8-ac81c4a3d8af</id>
+      <name>Hole2</name>
+      <alphaPercent>
+        <value>100</value>
+      </alphaPercent>
+      <diameter value="2.0" unit="mm"/>
+      <color hex="000000"/>
+      <point x="2.2" y="1.15"/>
+    </diylc.electromechanical.DrillHole>
     <diylc.connectivity.TraceCut>
       <id>dabbf344-4355-4285-a3da-afc1f335fc84</id>
       <name>Cut1</name>
@@ -362,6 +382,51 @@
       <hideShortLeads>false</hideShortLeads>
       <style>SOLID</style>
     </diylc.connectivity.Jumper>
+    <diylc.connectivity.TraceCut>
+      <id>e85e68ef-ceed-42e7-bf47-7914dc7f9958</id>
+      <name>Cut5</name>
+      <alphaPercent>
+        <value>100</value>
+      </alphaPercent>
+      <size value="0.08" unit="in"/>
+      <fillColor hex="ffffff"/>
+      <borderColor hex="ff0000"/>
+      <boardColor hex="f8ebb3"/>
+      <cutBetweenHoles>false</cutBetweenHoles>
+      <orientation>VERTICAL</orientation>
+      <holeSpacing value="0.1" unit="in"/>
+      <point x="1.9" y="1.7"/>
+    </diylc.connectivity.TraceCut>
+    <diylc.connectivity.TraceCut>
+      <id>63e7d2b4-cf62-465a-bb6f-15cdc65b5e84</id>
+      <name>Cut6</name>
+      <alphaPercent>
+        <value>100</value>
+      </alphaPercent>
+      <size value="0.08" unit="in"/>
+      <fillColor hex="ffffff"/>
+      <borderColor hex="ff0000"/>
+      <boardColor hex="f8ebb3"/>
+      <cutBetweenHoles>false</cutBetweenHoles>
+      <orientation>VERTICAL</orientation>
+      <holeSpacing value="0.1" unit="in"/>
+      <point x="2.1" y="1.1"/>
+    </diylc.connectivity.TraceCut>
+    <diylc.connectivity.TraceCut>
+      <id>6e39c181-5f01-4f90-9307-7bba8b62dba6</id>
+      <name>Cut8</name>
+      <alphaPercent>
+        <value>100</value>
+      </alphaPercent>
+      <size value="0.08" unit="in"/>
+      <fillColor hex="ffffff"/>
+      <borderColor hex="ff0000"/>
+      <boardColor hex="f8ebb3"/>
+      <cutBetweenHoles>false</cutBetweenHoles>
+      <orientation>VERTICAL</orientation>
+      <holeSpacing value="0.1" unit="in"/>
+      <point x="2.29" y="1.205"/>
+    </diylc.connectivity.TraceCut>
     <diylc.passive.Resistor>
       <id>5e44db3d-391f-4668-8eee-e89b3027b1d9</id>
       <name>R12</name>
