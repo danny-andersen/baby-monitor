@@ -183,8 +183,8 @@ void power_control()
         // Battery level too low or we dont have wifi, send shutdown command to PI but only if UP and responding
         if (pi_status == UP) {
             shutdown_pi();
-        } else if (pi_shutdown_time == 0 && pi_status == NO_RESPONSE) {
-            //PI not responding - start the shutdown timer anyway to prevent an unresponsive PI from staying on
+        } else if (pi_shutdown_time == 0) {
+            //Start the shutdown timer anyway to prevent an unresponsive PI from staying on
             pi_shutdown_time = millis();
         }
     }

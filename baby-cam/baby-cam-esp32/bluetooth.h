@@ -28,14 +28,14 @@ public:
     void onConnect(NimBLEServer* pServer,
                    NimBLEConnInfo& connInfo)
     {
-        Serial.println("BLE client connected");
+        D_println("BLE client connected");
     }
 
     void onDisconnect(NimBLEServer* pServer,
                       NimBLEConnInfo& connInfo,
                       int reason)
     {
-        Serial.println("BLE client disconnected");
+        D_println("BLE client disconnected");
         NimBLEDevice::startAdvertising();
     }
 };
