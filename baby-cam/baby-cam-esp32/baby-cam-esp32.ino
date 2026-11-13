@@ -1,9 +1,16 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiAP.h>
 #include <WiFiMulti.h>
+
+#include <WebServer.h>
+#include <ArduinoJson.h>
+#include <NimBLEDevice.h>
+#include <vector>
 
 #include "wifi-defs.h"
 #include "baby-cam-defs.h"
+#include "wifi_creds.h"
 #include "bluetooth.h"
 #include "wifiStatus.h"
 #include "serial_comms.h"
@@ -29,7 +36,7 @@ void setup()
     setupInfraDriver();
 
     setupWifi();
-    setupStatusWebServer();
+    // setupStatusWebServer();
     setupI2S();
     setupAudioServer();
     startBLE();
@@ -46,9 +53,10 @@ void loop()
     // Check on power situation
     power_control();
     driveInfraLight();
+    //Handle AP or Status client
     server.handleClient();
     requestPiStatus();  //Send regular status check to PI
-    if (last_req_time > 0) {
+    if (video_power && last_req_time > 0) {
         checkPiResponse();  //Check for any comms from PI
         if (request_pi_addr) {
             requestPiAddr();

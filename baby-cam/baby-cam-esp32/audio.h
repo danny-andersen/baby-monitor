@@ -70,7 +70,7 @@ void setupI2S()
 
     ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
 
-    Serial.println("I2S microphone started");
+    D_println("I2S microphone started");
 }
 
 // Capture task: I2S -> PCM -> BUFFER

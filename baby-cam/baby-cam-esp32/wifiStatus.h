@@ -1,66 +1,28 @@
-#include <WebServer.h>
-
-#define WIFI_CHECK_INTERVAL 10000 // Interval of 10 second (1000 ms)
-
-WiFiMulti wifiMulti;
-
-WebServer server(8080);
-
-unsigned long lastWifiCheckMillis = 0;
-
 // -------------------------
 // Status page
 // -------------------------
-void handleRoot()
+void handleStatusRoot()
 {
+    JsonDocument doc;
+
+    doc["battery_volts"] = current_batt_volts;
+    doc["battery_perc"] = current_batt_perc;
+    doc["charging"] = charging;
+    doc["camera_status"] = pi_status_desc();
+    doc["video_addr"] = video_ip;
+    doc["video"] = video_power;
+    doc["video_sw"] = video_sw;
+    doc["microphone"] = mic_power;
+    doc["mic_sw"] = mic_sw;
+    doc["infrared_led"] = infrared_lights_on;
+    doc["light_level"] = light_level;
+    doc["ssid"] = WiFi.SSID();
+    doc["ip"] = WiFi.localIP().toString();
+
     String json;
 
-    json += "{";
-    json += "\"battery_volts\": ";
-    json += current_batt_volts;
-    json += ",";
-    json += "\"battery_perc\": ";
-    json += current_batt_perc;
-    json += ",";
-    json += "\"charging\": ";
-    json += charging;
-    json += ",";
-    json += "\"camera_status\": ";
-    json += pi_status_desc();
-    json += ",";
-    json += "\"video_addr\": ";
-    json += "\"" + video_ip + "\"";
-    json += ",";
-    json += "\"video\": ";
-    json += video_power;
-    json += ",";
-    json += "\"video_sw\": ";
-    json += video_sw;
-    json += ",";
-    json += "\"microphone\": ";
-    json += mic_power;
-    json += ",";
-    json += "\"mic_sw\": ";
-    json += mic_sw;
-    json += ",";
-    json += "\"infrared_led\": ";
-    json += infrared_lights_on;
-    json += ",";
-    json += "\"light_level\": ";
-    json += light_level;
-    // json += ","
-    json += "}";
+    serializeJson(doc, json);
 
-    // html += "<html><body>";
-    // html += "<h1>ESP32-C6 Microphone</h1>";
-    // html += "<p>SPH0645LM4H</p>";
-    // html += "<p>Sample rate: 16000 Hz</p>";
-    // html += "<p>Format: 16-bit mono PCM</p>";
-    // html += "<p>Batt Percentage:";
-    // html += batt_percentage;
-    // html += "</p>";
-    // html += "<p><a href=\"/audio\">Audio stream</a></p>";
-    // html += "</body></html>";
     server.send(200, "text/json", json);
 }
 
@@ -89,8 +51,16 @@ void handleVideoRequest() {
   D_println();
 }
 
+void handleServerRoot() {
+  if (configAPActive) {
+    handleConfigRoot();
+  } else {
+    handleStatusRoot();
+  }
+}
+
 void setupStatusWebServer() {
-    server.on("/", HTTP_GET, handleRoot);
+    server.on("/", HTTP_GET, handleStatusRoot);
     server.on("/video", HTTP_GET, handleVideoRequest);
     server.begin();
 
@@ -98,53 +68,57 @@ void setupStatusWebServer() {
 
 }
 
+void wifiClientConnected() {
+    notifyIPChange();
+    audio_ip = WiFi.localIP().toString();
+    D_printf("\nIP address: %s, on AP: %s\n", audio_ip, WiFi.SSID());
+    setupStatusWebServer();
+    wifi_connected = true;
+
+}
+
 void setupWifi() {
-    // Connect to an available AP
-    for (int i=0; i<NO_OF_APS; i++) {
-        wifiMulti.addAP(WIFI_AP_ARRAY[i].apName, WIFI_AP_ARRAY[i].apPassword);
-    }
-    // WiFi.mode(WIFI_STA);
-    // WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    // Start in station mode
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+
+    // Load saved networks into MultiWifi
+    loadNetworks();
+    //Merge in preconfigured (only done once)
+    mergePreconfiguredNetworks();
+
     WiFi.setSleep(false);
-    D_print("Connecting to WiFi");
+    // Connect to Wifi
 
-    // while (WiFi.status() != WL_CONNECTED)
-    // {
-    //     delay(500);
-    //     D_print(".");
-    // }
-    // D_println();
-    // D_print("IP address: ");
-    // D_println(WiFi.localIP());
- 
+    if (connectWiFi(WIFI_TIMEOUT_MS))
+    {
+      wifiClientConnected();
+    }
+    else
+    {
+      // No known AP found - start configuration portal
+      startConfigAP();
+    }
+    //Common root for both modes
+    server.on("/", HTTP_GET, handleServerRoot);
+    server.onNotFound(handleServerRoot);
 
-    if (wifiMulti.run() == WL_CONNECTED) {
-        wifi_connected = true;
-        audio_ip = WiFi.localIP().toString();
-        ap_name = WiFi.SSID();
-        D_printf("\nIP address: %s, on AP: %s\n", audio_ip, ap_name);
-        setupStatusWebServer();
-        lastWifiCheckMillis = millis();
-    } 
 }
 
 void check_wifi() {
-    if (millis() - lastWifiCheckMillis > WIFI_CHECK_INTERVAL) {
+    if (!configAPActive && millis() - lastWifiCheckMillis > WIFI_CHECK_INTERVAL) {
         D_printf("Heap=%u, RSSI=%d dBm \n", ESP.getFreeHeap(), WiFi.RSSI());
         lastWifiCheckMillis = millis();
         if (wifiMulti.run() == WL_CONNECTED) {
             if (!wifi_connected) {
                 //We have restarted Wifi
-                wifi_connected = true;
-                D_println();
-                D_print("IP address: ");
-                D_println(WiFi.localIP());
-                setupStatusWebServer();
-                // notifyIPChange();
+                wifiClientConnected();
             }
-        } else {
+        } else if (wifi_connected) {
             //Lost connection
             D_println("Lost wifi");
+            server.close();
+            server.stop();
             wifi_connected = false;
         }
     }

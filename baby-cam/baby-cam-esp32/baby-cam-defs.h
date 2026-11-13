@@ -1,4 +1,4 @@
-#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_Serial Serial
@@ -42,6 +42,23 @@
 #define INFRARED_LED_DRIVER 19 //Output to drive Infra red LED lights on
 #define MIC_ON_PIN 20 //Pull this low to turn off the microphone
 
+
+// WiFi
+static const uint32_t WIFI_TIMEOUT_MS = 10000;
+static const uint32_t NEW_WIFI_TIMEOUT_MS = 20000;
+static const uint8_t MAX_NETWORKS = 10;
+#define WIFI_CHECK_INTERVAL 10000 // Interval of 10 second (1000 ms)
+WiFiMulti wifiMulti;
+WebServer server(8080);
+unsigned long lastWifiCheckMillis = 0;
+struct WiFiCredential
+{
+    String ssid;
+    String password;
+};
+std::vector<WiFiCredential> networks;
+bool configAPActive = false;
+
 //Power thresholds
 #define VIDEO_ON_THRESHOLD 60
 #define VIDEO_OFF_THRESHOLD 35
@@ -50,26 +67,6 @@
 //Deep sleep timings
 #define uS_TO_S_FACTOR 1000000ULL /* Conversion factor for micro seconds to seconds */
 #define TIME_TO_SLEEP  60          /* Time ESP32 will go to sleep (in seconds) */
-
-#define PI_REQUEST_TIME 10000 /* How often to send a status check to the PI */
-#define PI_SHUTDOWN_DELAY 20000  /* Time allowed for PI to shutdown */
-#define PI_RESPONSE_TIME 5000 /* Time allowed for PI to respond to a command*/ 
-
-//INFRA RED LED LIGHT thresholds (0 is pitch black, 100 is very bright)
-#define INFRARED_ON_THRESHOLD 20
-#define INFRARED_OFF_THRESHOLD 35
-
-//PI status
-enum PiStatus {
-  UNKNOWN,
-  POWERED_OFF,
-  BOOTING,
-  NO_RESPONSE,
-  UP,
-  SHUTDOWN_REQUESTED,
-  SHUTTING_DOWN,
-  SHUTDOWN
-};
 
 bool wifi_connected = false; //Whether we have wifi or not
 int current_batt_perc = 0;  // Currently calculated battery percentage
@@ -86,12 +83,9 @@ volatile uint32_t audioClients = 0; //Number of audio clients connected to contr
 int charging = 0; //Whether powered externally or not
 int drain_power = 0; //Whether the circuit to put an extra power load on is on
 
-enum PiStatus pi_status = POWERED_OFF;   //State of PI
-String camera_status = "Unknown"; //State of camera service running on the PI
-unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
-unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
-unsigned long last_req_time = 0;  //Time last request was sent
-unsigned long last_status_time = 0;  //Time last status command was sent
+//INFRA RED LED LIGHT thresholds (0 is pitch black, 100 is very bright)
+#define INFRARED_ON_THRESHOLD 20
+#define INFRARED_OFF_THRESHOLD 35
 
 int light_level = 0; //Level of the ambient light (0-100)
 bool infrared_lights_on = false; //Whether the led lights are on or off
@@ -99,7 +93,39 @@ bool infrared_lights_on = false; //Whether the led lights are on or off
 String audio_ip = "0.0.0.0"; //Not set
 String video_ip = "0.0.0.0";
 bool request_pi_addr = false; //Set to true when PI is UP
-String ap_name = SOFT_AP_NAME;
+
+//Bluetooth 
+NimBLEServer* bleServer = nullptr;
+NimBLEService* bleService = nullptr;
+NimBLECharacteristic* ipStatusChar = nullptr;
+
+bool ble_on = false;
+#define BLE_ON_MIN_TIME 30000 //BLE minimum on time 
+uint32_t ble_on_time = 0; //Ensure BLE is turned on for a period, otherwise it causes a core dump
+
+//PI serial comms related
+
+#define PI_REQUEST_TIME 10000 /* How often to send a status check to the PI */
+#define PI_SHUTDOWN_DELAY 20000  /* Time allowed for PI to shutdown */
+#define PI_RESPONSE_TIME 5000 /* Time allowed for PI to respond to a command*/ 
+
+enum PiStatus {
+  UNKNOWN,
+  POWERED_OFF,
+  BOOTING,
+  NO_RESPONSE,
+  UP,
+  SHUTDOWN_REQUESTED,
+  SHUTTING_DOWN,
+  SHUTDOWN
+};
+
+enum PiStatus pi_status = POWERED_OFF;   //State of PI
+String camera_status = "Unknown"; //State of camera service running on the PI
+unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
+unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
+unsigned long last_req_time = 0;  //Time last request was sent
+unsigned long last_status_time = 0;  //Time last status command was sent
 
 #if DEBUG
 String pi_status_str() {
@@ -139,29 +165,29 @@ String pi_status_desc() {
     case UNKNOWN:
     case POWERED_OFF:
       if (current_batt_perc <= VIDEO_ON_THRESHOLD) {
-        status_str = "\"powered off (low battery)\"";
+        status_str = "powered off (low battery)";
       } 
       else {
-        status_str = "\"powered off\"";
+        status_str = "powered off";
       }
       break;
     case BOOTING:
-      status_str = "\"starting up\"";
+      status_str = "starting up";
       break;
     case NO_RESPONSE:
-      status_str = "\"temporarily unavailable\"";
+      status_str = "temporarily unavailable";
       break;
     case UP:
       if (camera_status != "") {
-        status_str = "\"" + camera_status + "\"";
+        status_str = camera_status;
       }
       else {
-        status_str = "\"available\"";
+        status_str = "available";
       }
       break;
     case SHUTTING_DOWN:
     case SHUTDOWN_REQUESTED:
-      status_str = "\"stopping\"";
+      status_str = "stopping";
       break;
   }
   return status_str;
