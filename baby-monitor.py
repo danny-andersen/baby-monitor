@@ -30,7 +30,7 @@ import requests
 
 from audio_streamer import AudioStreamer
 from battery_status import BatteryIcon, RemoteStatusWorker, RemoteStatus
-from ble_discovery import get_ip
+from ble_discovery import get_ip, connect_wifi
 
 
 class BarGraphWidget(QWidget):
@@ -584,10 +584,15 @@ class MainWindow(QWidget):
 
     def battery_status_error(self, message):
         batt = RemoteStatus()
+        # Set default values to indicate no battery information available
         batt.battery_level = 0
         batt.charging = 0
         self.icon.set_status(batt)
+        # Set camera status to unavailable, so that the user knows the remote device is not responding
         self.update_camera_status("unavailable")
+        # Try and refresh the URLs from BLE discovery, in case the remote device has changed its IP address
+        print(f"Battery status request failed: {message}, attempting to refresh status URLs from BLE")
+        self.refresh_urls_from_ble()
         # print(f"Battery status request failed: {message}")
         
     def update_camera_status(self, status):
@@ -647,7 +652,7 @@ class MainWindow(QWidget):
                         entries[label] = url
 
             if stored_ap == current_ssid:
-                # On the same access point - we can use
+                # On the same access point as was stored - we can use these
                 self.current_ap = stored_ap
                 self.camera_url = entries.get("camera")
                 self.camera_health = entries.get("camera_health")
@@ -655,12 +660,12 @@ class MainWindow(QWidget):
                 self.status_url = entries.get("status")
                 self.video_ip = urlparse(self.camera_health).hostname
                 return True
-
-            print(
-                f"SSID changed from '{stored_ap}' "
-                f"to '{current_ssid}', using BLE discovery"
-            )
-            return self.refresh_urls_from_ble()        
+            else:
+                print(
+                    f"Current SSID '{current_ssid}' does not match "
+                    f"stored AP name '{stored_ap}', refreshing URLs from BLE"
+                )
+                return self.refresh_urls_from_ble()
 
         except Exception as e:
             print(f"Error reading url.txt: {e}")
@@ -735,8 +740,9 @@ class MainWindow(QWidget):
         if not ble_data:
             return False
 
-        ap_name = ble_data["ap_name"]
-        audio_ip = ble_data["audio_ip"]
+        ap_name = ble_data["ssid"]
+        ap_password = ble_data["password"]
+        audio_ip = ble_data["ip"]
         
         if (ap_name == "") or (audio_ip == ""):
             print("Incomplete BLE data received")
@@ -747,13 +753,15 @@ class MainWindow(QWidget):
         if (self.current_ap != ap_name):
             print(
                 f"Current SSID '{self.current_ap}' does not match "
-                f"BLE AP name '{ap_name}', cannot use BLE data"
+                f"BLE AP name '{ap_name}', switching wifi networks"
             )
-            return False
+            connect_wifi(ap_name, ap_password)
 
         if audio_ip != "0.0.0.0":
             self.audio_url = f"http://{audio_ip}:8081/"
             self.status_url = f"http://{audio_ip}:8080/"
+            # Update the url.txt file with the new values - noting that camera url are not set yet, so they will be empty
+            self.update_url_file()
         else:
             self.audio_url = ""
             self.status_url = ""

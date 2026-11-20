@@ -3,3 +3,5 @@ PyQt6-WebEngine
 requests
 numpy
 pyaudio
+bleak
+cryptography
