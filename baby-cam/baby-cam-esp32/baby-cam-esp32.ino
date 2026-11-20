@@ -13,8 +13,8 @@
 #include "baby-cam-defs.h"
 #include "wifi_creds.h"
 #include "bluetooth.h"
-#include "wifiStatus.h"
 #include "serial_comms.h"
+#include "wifiStatus.h"
 #include "audio.h"
 #include "batt_volt_sense.h"
 #include "infra_red_driver.h"
@@ -57,11 +57,14 @@ void loop()
     //Handle AP or Status client
     server.handleClient();
     requestPiStatus();  //Send regular status check to PI
-    if (video_power && last_req_time > 0) {
+    if (video_power && pi_last_req_time > 0) {
         checkPiResponse();  //Check for any comms from PI
         if (request_pi_addr) {
             requestPiAddr();
-            request_pi_addr = false;
+        }
+        if (video_ap != audio_ap) {
+            //The PI has connected to a different wifi network - force it to change
+            requestPISetAP();
         }
     }
     checkBLE();

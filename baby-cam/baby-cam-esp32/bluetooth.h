@@ -241,37 +241,26 @@ bool encryptJSON(const String& json,
     return true;
 }
 
-void set_ble_ip_chara() {
-    
-    if (ipStatusChar == nullptr) {
-        D_println("ipStatus chara not defined");
-        return;
-    }
-
+String getWifiCreds() {
     String password = getConnectedPassword();
 
     if (password.length() == 0 &&
         !WiFi.SSID().isEmpty())
     {
-
         // An empty password is valid for an open AP.
         // Check whether this SSID is actually in our list.
-
         bool found = false;
-
-        for (const auto &network : networks)
-        {
+        for (const auto &network : networks) {
             if (network.ssid == WiFi.SSID())
             {
                 found = true;
                 break;
             }
         }
-
         if (!found)
         {
             D_println("Connected SSID not in credential list");
-            return;
+            return "";
         }
     }
 
@@ -295,15 +284,26 @@ void set_ble_ip_chara() {
     if (!encryptJSON(json, encrypted)) {
         D_println("Encrypt failed");
         ipStatusChar->setValue("ENCRYPT FAILED");
-        return;
+        return "";
     }
 
     if (encrypted.length() > 512)
     {
         ipStatusChar->setValue("CHARA TOO LONG");
         D_println("Encrypted BLE data exceeds 512 bytes");
+        return "";
+    }
+    return encrypted;
+}
+
+void set_ble_ip_chara() {
+    
+    if (ipStatusChar == nullptr) {
+        D_println("ipStatus chara not defined");
         return;
     }
+
+    String encrypted = getWifiCreds();
 
     // Store encrypted payload in BLE characteristic
 

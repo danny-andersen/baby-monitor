@@ -5,6 +5,9 @@
 #define CAMERA_STR "CAMERA="
 #define GET_IP "<GET_IP>"
 #define IP_ADDR "IP="
+#define AP_NAME "AP="
+#define SET_AP "<SET_AP="
+#define WIFI_STR "<WIFI"
 
 void setupPiSerialComms() {
     PI_SERIAL.begin(
@@ -16,24 +19,43 @@ void setupPiSerialComms() {
 }
 
 void requestPiStatus() {
-  if (video_power && (pi_status == UNKNOWN || pi_status == UP || pi_status == BOOTING || pi_status == NO_RESPONSE)) {
-    //Only check PI if we know it is up or should be up
+  if (pi_last_req_time == 0 && video_power && (pi_status == UNKNOWN || pi_status == UP || pi_status == BOOTING || pi_status == NO_RESPONSE)) {
+    //Only check PI if we know it is up or should be up and we dont have a request outstanding
     unsigned long currentMillis = millis();
-    if ((currentMillis - last_status_time) > PI_REQUEST_TIME)
+    if ((currentMillis - pi_last_status_time) > PI_REQUEST_TIME)
     {
-      last_req_time = currentMillis;
-      last_status_time = currentMillis;
+      pi_last_req_time = currentMillis;
+      pi_last_status_time = currentMillis;
       PI_SERIAL.println(STATUS_STR);
     }
   }
 }
 
 void requestPiAddr() {
+  if (pi_last_req_time > 0) {
+    //Still waiting for a response from a previous request
+    return;
+  }
   unsigned long currentMillis = millis();
-  last_req_time = currentMillis;
-  last_status_time = currentMillis;
+  pi_last_req_time = currentMillis;
   PI_SERIAL.println(GET_IP);
+  request_pi_addr = false;
 }
+
+void requestPISetAP() {
+  if (pi_last_req_time > 0 || !video_power || pi_status != UP) {
+    //Still waiting for a response from a previous request, or the PI isnt up yet
+    return;
+  }
+  unsigned long currentMillis = millis();
+  pi_last_req_time = currentMillis;
+  String encrypted_creds = getWifiCreds();
+  PI_SERIAL.print(SET_AP);
+  PI_SERIAL.print(encrypted_creds);
+  PI_SERIAL.println(">");
+  //Note the response should be the same as a GET_IP command
+}
+
 
 void checkPiResponse() {
   unsigned long currentMillis = millis();
@@ -48,7 +70,7 @@ void checkPiResponse() {
         String rxLine = String(rxBuff);
         rxLine.trim();
 
-        last_req_time = 0;
+        pi_last_req_time = 0;
  
         D_print("PI replied: ");
         D_println(rxLine);
@@ -66,24 +88,36 @@ void checkPiResponse() {
               camera_status = rxLine.substring(startPos, endPos);
             }
           }
-        }
-        D_printf("Status %d: %s\n", pi_status,pi_status_str());
-        int ip_pos = rxLine.indexOf(IP_ADDR);
-        if (ip_pos >=0) {
-          int startPos = ip_pos + 3;
-          int endPos = rxLine.indexOf(">");
-          if (startPos >= 0 && endPos >= 0) {
-            video_ip = rxLine.substring(startPos, endPos);
-            D_printf("Rx PI ip addr %s\n", video_ip);
-            notifyIPChange();
+          D_printf("Status %d: %s\n", pi_status,pi_status_str());
+        } else {
+          int ip_pos = rxLine.indexOf(IP_ADDR);
+          if (ip_pos >=0) {
+            int startPos = ip_pos + 3;
+            int endPos = rxLine.indexOf(",");
+            if (startPos >= 0 && endPos >= 0) {
+              video_ip = rxLine.substring(startPos, endPos);
+              int ap_pos = rxLine.indexOf(AP_NAME);
+              if (ap_pos >=0) {
+                int startPos = ap_pos + 3;
+                int endPos = rxLine.indexOf(">");
+                if (startPos >= 0 && endPos >= 0) {
+                  video_ap = rxLine.substring(startPos, endPos);
+                  D_printf("Rx PI ip addr %s on wifi %s\n", video_ip, video_ap);
+                }
+              }
+            }
+          } 
+          else if (rxLine.indexOf(SHUTTING_DOWN_STR) >= 0)
+          {
+            pi_shutdown_time = currentMillis;
+            pi_status = SHUTTING_DOWN;
+            D_println("PI is shutting down");
+          }
+          else if (rxLine.indexOf(WIFI_STR) >= 0) {
+            //Something went wrong setting the wifi om the PI
+            D_printf("PI Wifi failed: %s", rxLine);
           }
         }
-        if (rxLine.indexOf(SHUTTING_DOWN_STR) >= 0) {
-          pi_shutdown_time = currentMillis;
-          pi_status = SHUTTING_DOWN;
-          D_println("PI is shutting down");
-        }
-
         rxLine = "";
     }
     else
@@ -93,11 +127,11 @@ void checkPiResponse() {
     vTaskDelay(pdMS_TO_TICKS(10));
   }    
 
-  if (last_req_time > 0 && ((currentMillis - last_req_time) > PI_RESPONSE_TIME)) 
+  if (pi_last_req_time > 0 && ((currentMillis - pi_last_req_time) > PI_RESPONSE_TIME)) 
   {
     // A request was sent but has timed out
     D_printf("PI did not respond: %s\n", pi_status_str());
-    last_req_time = 0;
+    pi_last_req_time = 0;
     if (pi_status == UP || pi_status == UNKNOWN) 
     {
       pi_status = NO_RESPONSE;
@@ -117,7 +151,7 @@ void shutdown_pi() {
       pi_status = SHUTDOWN_REQUESTED;
       unsigned long currentMillis = millis();
       pi_shutdown_request_time = currentMillis;
-      last_req_time = currentMillis;
+      pi_last_req_time = currentMillis;
       D_println("PI shutdown request sent");
   }
 }

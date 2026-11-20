@@ -10,14 +10,15 @@ void handleStatusRoot()
     doc["charging"] = charging;
     doc["camera_status"] = pi_status_desc();
     doc["video_addr"] = video_ip;
+    doc["video_ssid"] = video_ap;
     doc["video"] = video_power;
     doc["video_sw"] = video_sw;
     doc["microphone"] = mic_power;
     doc["mic_sw"] = mic_sw;
     doc["infrared_led"] = infrared_lights_on;
     doc["light_level"] = light_level;
-    doc["ssid"] = WiFi.SSID();
-    doc["ip"] = WiFi.localIP().toString();
+    doc["ssid"] = audio_ap;
+    doc["ip"] = audio_ip;
     doc["ble_on"] = ble_on;
 
     String json;
@@ -72,9 +73,14 @@ void setupStatusWebServer() {
 void wifiClientConnected() {
     notifyIPChange();
     audio_ip = WiFi.localIP().toString();
-    D_printf("\nIP address: %s, on AP: %s\n", audio_ip, WiFi.SSID());
+    audio_ap = WiFi.SSID();
+    D_printf("\nIP address: %s, on AP: %s\n", audio_ip, audio_ap);
     setupStatusWebServer();
     wifi_connected = true;
+    if (video_ip != "0.0.0.0" && video_ap != audio_ap) {
+      //Tell PI to get with the programme
+      requestPISetAP(); 
+    }
 
 }
 

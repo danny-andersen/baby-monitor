@@ -1,4 +1,4 @@
-#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_Serial Serial
@@ -91,7 +91,9 @@ int light_level = 0; //Level of the ambient light (0-100)
 bool infrared_lights_on = false; //Whether the led lights are on or off
 
 String audio_ip = "0.0.0.0"; //Not set
+String audio_ap = "NONE";
 String video_ip = "0.0.0.0";
+String video_ap = "NONE";
 bool request_pi_addr = false; //Set to true when PI is UP
 
 //Bluetooth 
@@ -124,8 +126,8 @@ enum PiStatus pi_status = POWERED_OFF;   //State of PI
 String camera_status = "Unknown"; //State of camera service running on the PI
 unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
 unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
-unsigned long last_req_time = 0;  //Time last request was sent
-unsigned long last_status_time = 0;  //Time last status command was sent
+unsigned long pi_last_req_time = 0;  //Time last request was sent to PI
+unsigned long pi_last_status_time = 0;  //Time last status command was sent to PI
 
 #if DEBUG
 String pi_status_str() {

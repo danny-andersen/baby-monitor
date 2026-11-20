@@ -24,6 +24,7 @@ baby-cam/baby-cam.cfg
 baby-cam/motion.key
 baby-cam/motion.pem
 baby-cam/baby-cam-esp32/wifi-defs.h
+baby-cam/serial/keys.py
 baby-cam/audio.pcm
 batt-test1.csv
 batt-test1.txt
