@@ -1,4 +1,4 @@
-#include <mbedtls/gcm.h>
+#include <psa/crypto.h>
 #include <mbedtls/base64.h>
 #include <esp_system.h>
 
@@ -57,125 +57,186 @@ String getConnectedPassword()
     return "";
 }
 
-bool encryptJSON(const String &json,
-                 String &encryptedResult)
-{
+// ============================================================
+// BASE64 ENCODING
+// ============================================================
+
+String base64Encode(const uint8_t* data, size_t length) {
+
+    static const char table[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789+/";
+
+    String output;
+    output.reserve(((length + 2) / 3) * 4);
+
+    for (size_t i = 0; i < length; i += 3) {
+
+        uint32_t value =
+            (uint32_t)data[i] << 16;
+
+        if (i + 1 < length)
+            value |= (uint32_t)data[i + 1] << 8;
+
+        if (i + 2 < length)
+            value |= data[i + 2];
+
+        output += table[(value >> 18) & 0x3F];
+        output += table[(value >> 12) & 0x3F];
+
+        output += (i + 1 < length)
+            ? table[(value >> 6) & 0x3F] : '=';
+
+        output += (i + 2 < length)
+            ? table[value & 0x3F] : '=';
+    }
+
+    return output;
+}
+
+
+// ============================================================
+// AES-256-GCM ENCRYPTION USING PSA CRYPTO
+// ============================================================
+
+bool encryptJSON(const String& json,
+                 String& encryptedResult) {
 
     uint8_t key[32];
 
-    if (!getAESKey(key))
-    {
-        D_println("Invalid AES key");
+    if (!getAESKey(key)) {
+        Serial.println("Invalid AES key");
         return false;
     }
 
-    size_t plainLength = json.length();
+    // Initialise PSA Crypto
 
-    // Generate random 96-bit nonce
+    psa_status_t status = psa_crypto_init();
+
+    if (status != PSA_SUCCESS) {
+        Serial.printf("PSA init failed: %d\n", status);
+        return false;
+    }
+
+    // Create a random 96-bit nonce
 
     uint8_t nonce[NONCE_SIZE];
 
     esp_fill_random(nonce, NONCE_SIZE);
 
-    // Allocate ciphertext
+    // Configure AES-256-GCM key
 
-    std::vector<uint8_t> ciphertext(plainLength);
+    psa_key_attributes_t attributes =
+        PSA_KEY_ATTRIBUTES_INIT;
 
-    uint8_t tag[TAG_SIZE];
+    psa_set_key_type(
+        &attributes,
+        PSA_KEY_TYPE_AES
+    );
 
-    mbedtls_gcm_context ctx;
+    psa_set_key_bits(
+        &attributes,
+        256
+    );
 
-    mbedtls_gcm_init(&ctx);
+    psa_set_key_usage_flags(
+        &attributes,
+        PSA_KEY_USAGE_ENCRYPT
+    );
 
-    int result = mbedtls_gcm_setkey(
-        &ctx,
-        MBEDTLS_CIPHER_ID_AES,
+    psa_set_key_algorithm(
+        &attributes,
+        PSA_ALG_GCM
+    );
+
+    psa_key_id_t keyId;
+
+    status = psa_import_key(
+        &attributes,
         key,
-        256);
+        sizeof(key),
+        &keyId
+    );
 
-    if (result != 0)
-    {
+    psa_reset_key_attributes(&attributes);
 
-        mbedtls_gcm_free(&ctx);
-
-        D_println("AES setkey failed");
+    if (status != PSA_SUCCESS) {
+        Serial.printf("PSA key import failed: %d\n", status);
         return false;
     }
 
-    result = mbedtls_gcm_crypt_and_tag(
-        &ctx,
-        MBEDTLS_GCM_ENCRYPT,
-        plainLength,
+    // PSA GCM output is ciphertext followed by tag
+
+    size_t plainLength = json.length();
+
+    std::vector<uint8_t> ciphertext(
+        plainLength + TAG_SIZE
+    );
+
+    size_t ciphertextLength = 0;
+
+    status = psa_aead_encrypt(
+        keyId,
+        PSA_ALG_GCM,
         nonce,
         NONCE_SIZE,
-        nullptr,
+        nullptr,                 // No additional data
         0,
-        (const uint8_t *)json.c_str(),
+        (const uint8_t*)json.c_str(),
+        plainLength,
         ciphertext.data(),
-        TAG_SIZE,
-        tag);
+        ciphertext.size(),
+        &ciphertextLength
+    );
 
-    mbedtls_gcm_free(&ctx);
+    // Destroy temporary key
 
-    if (result != 0)
-    {
+    psa_destroy_key(keyId);
 
-        D_println("AES encryption failed");
+    if (status != PSA_SUCCESS) {
+        Serial.printf("AES-GCM encryption failed: %d\n", status);
         return false;
     }
 
-    // Build binary payload:
-    // nonce + ciphertext + authentication tag
+    // Build payload:
+    //
+    // nonce (12 bytes)
+    // ciphertext (variable)
+    // authentication tag (16 bytes)
+    //
+    // PSA already returns ciphertext + tag together.
 
     std::vector<uint8_t> payload;
 
     payload.reserve(
-        NONCE_SIZE + plainLength + TAG_SIZE);
+        NONCE_SIZE + ciphertextLength
+    );
 
     payload.insert(
         payload.end(),
         nonce,
-        nonce + NONCE_SIZE);
+        nonce + NONCE_SIZE
+    );
 
     payload.insert(
         payload.end(),
         ciphertext.begin(),
-        ciphertext.end());
-
-    payload.insert(
-        payload.end(),
-        tag,
-        tag + TAG_SIZE);
+        ciphertext.begin() + ciphertextLength
+    );
 
     // Base64 encode
 
-    size_t outputLength =
-        4 * ((payload.size() + 2) / 3) + 1;
-
-    std::vector<unsigned char> encoded(outputLength);
-
-    size_t actualLength = 0;
-
-    result = mbedtls_base64_encode(
-        encoded.data(),
-        encoded.size(),
-        &actualLength,
+    encryptedResult = base64Encode(
         payload.data(),
-        payload.size());
+        payload.size()
+    );
 
-    if (result != 0)
-    {
-
-        D_println("Base64 encoding failed");
-        return false;
-    }
-
-    encoded[actualLength] = '\0';
-
-    encryptedResult = String(
-        (const char *)encoded.data());
-
-    D_printf("Encrypted string len %d\n", actualLength);
+    Serial.printf(
+        "Encrypted JSON: %d bytes, Base64: %d bytes\n",
+        payload.size(),
+        encryptedResult.length()
+    );
 
     return true;
 }
@@ -184,11 +245,6 @@ void set_ble_ip_chara() {
     
     if (ipStatusChar == nullptr) {
         D_println("ipStatus chara not defined");
-        return;
-    }
-
-    if (WiFi.status() != WL_CONNECTED) {
-        ipStatusChar->setValue("NOT CONNECTED");
         return;
     }
 
@@ -224,9 +280,9 @@ void set_ble_ip_chara() {
     // ============================================================
     JsonDocument doc;
 
-    doc["ap_name"] = WiFi.SSID();
+    doc["ssid"] = WiFi.SSID();
     doc["password"] = password;
-    doc["audio_ip"] = WiFi.localIP().toString();
+    doc["ip"] = WiFi.localIP().toString();
 
     String json;
 
@@ -236,10 +292,11 @@ void set_ble_ip_chara() {
 
     String encrypted;
 
-    if (!encryptJSON(json, encrypted))
+    if (!encryptJSON(json, encrypted)) {
         D_println("Encrypt failed");
         ipStatusChar->setValue("ENCRYPT FAILED");
         return;
+    }
 
     if (encrypted.length() > 512)
     {
@@ -251,6 +308,9 @@ void set_ble_ip_chara() {
     // Store encrypted payload in BLE characteristic
 
     ipStatusChar->setValue(encrypted.c_str());
+
+    D_printf("Characteristic stored length: %d\n",
+              ipStatusChar->getValue().size());    
 
     D_println("BLE characteristic updated");
 }
@@ -270,14 +330,29 @@ public:
                       int reason)
     {
         D_println("BLE client disconnected");
-        NimBLEDevice::startAdvertising();
+        NimBLEExtAdvertising* pAdvertising =
+            NimBLEDevice::getAdvertising();
+        if (pAdvertising) {
+            if (!pAdvertising->isActive(0)) {
+                D_println("Restarting advertising after disconnect");
+                pAdvertising->start(0, 0, 0);
+            }
+        }
     }
 };
 
 
 void startBLE() {
+    if (WiFi.status() != WL_CONNECTED) {
+        D_println("Wifi not connected, so BLE not started");
+        return;
+    }
 
-    NimBLEDevice::init("BABY-CAM");
+    NimBLEDevice::init(BLE_DEVICE_NAME);
+
+    D_printf("BLE MAC Address %s\n", NimBLEDevice::getAddress().toString().c_str());
+    //  // Request a larger MTU for GATT transfers
+    NimBLEDevice::setMTU(517);
 
     // NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
@@ -295,18 +370,53 @@ void startBLE() {
 
     set_ble_ip_chara();
 
-    bleService->start();    
+    Serial.println("Starting GATT service...");
 
-    NimBLEAdvertising* advertising =
+    bool serviceStarted = bleService->start();
+
+    Serial.print("GATT service start result: ");
+    Serial.println(serviceStarted ? "SUCCESS" : "FAILED");
+
+    // ---------------------------------------
+    // Configure extended advertising
+    // ---------------------------------------
+
+    NimBLEExtAdvertisement advertisement;
+
+    // Advertise the device name
+    advertisement.setName(BLE_DEVICE_NAME);
+
+    // Advertise the service UUID
+    // advertisement.addServiceUUID(NimBLEUUID(SERVICE_UUID));
+    advertisement.setLegacyAdvertising(true);
+    advertisement.setConnectable(true);
+
+    // Scan response: service UUID
+    NimBLEExtAdvertisement scanResponse;
+
+    scanResponse.addServiceUUID(NimBLEUUID(SERVICE_UUID));
+
+    // Get extended advertising manager
+    NimBLEExtAdvertising* pAdvertising =
         NimBLEDevice::getAdvertising();
 
-    advertising->addServiceUUID(bleService->getUUID());
-    advertising->setName("BABY-CAM");
+    // Register advertisement data as instance 0
+    if (!pAdvertising->setInstanceData(0, advertisement)) {
+        D_println("ERROR: Failed to configure BLE advertising");
+        return;
+    }
+    if (!pAdvertising->setScanResponseData(0, scanResponse)) {
+        D_println("ERROR: Failed to configure BLE scan response");
+        return;
+    }
+    // Start advertising instance 0 indefinitely
+    if (!pAdvertising->start(0, 0, 0)) {
+        D_println("ERROR: Failed to start BLE advertising");
+        return;
+    }
 
+    D_printf("Advertising active: %s\n", pAdvertising->isActive(0) ? "YES" : "NO");
 
-    // advertising->setMinInterval(800);
-    // advertising->setMaxInterval(1200);
-    advertising->start();
     ble_on = true;
     D_println("BLE started");
     ble_on_time = millis();
@@ -317,12 +427,16 @@ void stopBLE() {
         //BLE must be on for a little while to prevent crashes
         return;
     }    
-    NimBLEAdvertising* advertising =
+    D_println("Stopping BLE");
+    // Stop extended advertising instance 0
+    NimBLEExtAdvertising* advertising =
         NimBLEDevice::getAdvertising();
 
-    if (advertising)
-    {
-        advertising->stop();
+    if (advertising) {
+        if (advertising->isActive(0)) {
+            advertising->stop(0);
+            Serial.println("BLE advertising stopped");
+        }
     }
 
     NimBLEDevice::deinit(true);

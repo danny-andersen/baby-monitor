@@ -1,4 +1,4 @@
-#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_Serial Serial
@@ -100,7 +100,7 @@ NimBLEService* bleService = nullptr;
 NimBLECharacteristic* ipStatusChar = nullptr;
 
 bool ble_on = false;
-#define BLE_ON_MIN_TIME 30000 //BLE minimum on time 
+#define BLE_ON_MIN_TIME 20000 //BLE minimum on time 
 uint32_t ble_on_time = 0; //Ensure BLE is turned on for a period, otherwise it causes a core dump
 
 //PI serial comms related

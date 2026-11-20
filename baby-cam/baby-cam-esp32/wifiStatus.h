@@ -18,6 +18,7 @@ void handleStatusRoot()
     doc["light_level"] = light_level;
     doc["ssid"] = WiFi.SSID();
     doc["ip"] = WiFi.localIP().toString();
+    doc["ble_on"] = ble_on;
 
     String json;
 

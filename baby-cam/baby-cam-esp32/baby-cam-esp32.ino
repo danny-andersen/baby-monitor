@@ -6,6 +6,7 @@
 #include <WebServer.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
+#include <NimBLEExtAdvertising.h>
 #include <vector>
 
 #include "wifi-defs.h"
@@ -24,10 +25,10 @@
 // -------------------------
 void setup()
 {
-    D_SerialBegin(115200);
     delay(1000);
+    D_SerialBegin(115200);
     unsigned long start = millis();
-    while (!Serial && (millis() - start) < 3000) {
+    while (!D_Serial && (millis() - start) < 3000) {
      vTaskDelay(pdMS_TO_TICKS(10));
     }
     D_println("Setup start");
