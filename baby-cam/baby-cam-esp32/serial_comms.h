@@ -146,7 +146,8 @@ void checkPiResponse() {
 }
 
 void shutdown_pi() {
-  if (pi_shutdown_request_time == 0) {
+  if (pi_last_req_time == 0 && pi_shutdown_request_time == 0) {
+      // No outstanding request and we havent already sent a shutdown
       PI_SERIAL.println(SHUTDOWN_STR);
       pi_status = SHUTDOWN_REQUESTED;
       unsigned long currentMillis = millis();

@@ -5,7 +5,7 @@
 #define AUDIO_QUEUE_BLOCKS 64
 
 #define AUDIO_BUFFER_SAMPLES 32767
-#define STREAM_BLOCK_SAMPLES 2048
+#define STREAM_BLOCK_SAMPLES 1024
 #define MAX_AUDIO_CLIENTS 3
 
 WiFiServer audioServer(8081);
@@ -115,7 +115,7 @@ void audioCaptureTask(void *parameter)
             audioBuffer[writeCount % AUDIO_BUFFER_SAMPLES] = 
                 (int16_t)(i2sBuffer[i] >> 14);
 
-            writeCount++;
+            writeCount += 1;
         }
     }
 }
@@ -146,7 +146,8 @@ void audioClientTask(void *parameter)
             sizeof(int16_t),
             MALLOC_CAP_8BIT);
 
-    while (client.connected())
+    uint32_t lastheapdebug = 0;
+    while (txBuffer && client.connected())
     {
         if (!mic_power || !mic_sw)
         {
@@ -156,7 +157,7 @@ void audioClientTask(void *parameter)
 
         uint32_t currentWritePos = writeCount;
 
-        uint32_t backlog = writeCount - readPos;
+        uint32_t backlog = currentWritePos - readPos;
 
         // uint32_t distance =
         //     (currentWritePos +
@@ -204,6 +205,8 @@ void audioClientTask(void *parameter)
                 client.write(
                     data + totalSent,
                     bytesToSend - totalSent);
+            //Dummy write...
+            // size_t sent = bytesToSend - totalSent;
             uint32_t elapsed =
                 millis() - writeStart;
 
@@ -219,18 +222,28 @@ void audioClientTask(void *parameter)
             }
             else if (elapsed > 5000)
             {
-                D_println("Write timeout");
+                D_printf("Write timeout %lu ms\n", elapsed);
                 break;
             }
             vTaskDelay(1);        
         }
+        if (millis() - lastheapdebug > 10000) {
+            Serial.printf(
+                "stack=%u\n",
+                uxTaskGetStackHighWaterMark(nullptr));        
+            lastheapdebug = millis();
+        }
     }
     client.stop();
-    audioClients--;
+    audioClients -= 1;
+    if (audioClients <= 0) {
+        audioClients = 0;
+        audioDisconnectTimer = millis();
+    }
     if (txBuffer != NULL) {
         heap_caps_free(txBuffer);
     }
-    D_println("Audio client disconnected");
+    D_printf("Audio client disconnected: count: %d\n", audioClients);
     vTaskDelete(nullptr);
 }
 
@@ -242,12 +255,12 @@ void audioServerTask(void *parameter)
 
     while (true)
     {
-        WiFiClient client = audioServer.available();
+        WiFiClient client = audioServer.accept();
         if (client && mic_sw && mic_power)
         {
             // Only start a new client if mic switch is set to on and we have enough battery (mic_power == 1)
-            D_println("New audio listener");
-            audioClients++;
+            audioClients += 1;
+            D_printf("New audio listener: count %d\n", audioClients);
 
             AudioClientContext *ctx =
                 new AudioClientContext;

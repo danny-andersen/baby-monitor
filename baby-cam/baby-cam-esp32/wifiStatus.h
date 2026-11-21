@@ -77,7 +77,7 @@ void wifiClientConnected() {
     D_printf("\nIP address: %s, on AP: %s\n", audio_ip, audio_ap);
     setupStatusWebServer();
     wifi_connected = true;
-    if (video_ip != "0.0.0.0" && video_ap != audio_ap) {
+    if (video_ip != "0.0.0.0" && video_ap != audio_ap && !configAPActive) {
       //Tell PI to get with the programme
       requestPISetAP(); 
     }
@@ -114,7 +114,7 @@ void setupWifi() {
 
 void check_wifi() {
     if (!configAPActive && millis() - lastWifiCheckMillis > WIFI_CHECK_INTERVAL) {
-        D_printf("Heap=%u, RSSI=%d dBm \n", ESP.getFreeHeap(), WiFi.RSSI());
+        D_printf("Heap=%u, Min Heap=%u RSSI=%d dBm \n", ESP.getFreeHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
         lastWifiCheckMillis = millis();
         if (wifiMulti.run() == WL_CONNECTED) {
             if (!wifi_connected) {

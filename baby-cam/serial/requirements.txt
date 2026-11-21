@@ -1,3 +1,4 @@
 pyserial
 requests
 bleak
+cryptography

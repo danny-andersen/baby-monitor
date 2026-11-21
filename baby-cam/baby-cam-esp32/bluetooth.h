@@ -330,14 +330,15 @@ public:
                       int reason)
     {
         D_println("BLE client disconnected");
-        NimBLEExtAdvertising* pAdvertising =
-            NimBLEDevice::getAdvertising();
-        if (pAdvertising) {
-            if (!pAdvertising->isActive(0)) {
-                D_println("Restarting advertising after disconnect");
-                pAdvertising->start(0, 0, 0);
-            }
-        }
+        NimBLEDevice::startAdvertising();
+        // NimBLEExtAdvertising* pAdvertising =
+        //     NimBLEDevice::getAdvertising();
+        // if (pAdvertising) {
+        //     if (!pAdvertising->isActive(0)) {
+        //         D_println("Restarting advertising after disconnect");
+        //         pAdvertising->start(0, 0, 0);
+        //     }
+        // }
     }
 };
 
@@ -370,52 +371,57 @@ void startBLE() {
 
     set_ble_ip_chara();
 
-    Serial.println("Starting GATT service...");
-
-    bool serviceStarted = bleService->start();
-
-    Serial.print("GATT service start result: ");
-    Serial.println(serviceStarted ? "SUCCESS" : "FAILED");
+    //ESP32 core v4.x BLE code belows
 
     // ---------------------------------------
     // Configure extended advertising
     // ---------------------------------------
 
-    NimBLEExtAdvertisement advertisement;
+    // NimBLEExtAdvertisement advertisement;
 
-    // Advertise the device name
-    advertisement.setName(BLE_DEVICE_NAME);
+    // // Advertise the device name
+    // advertisement.setName(BLE_DEVICE_NAME);
 
-    // Advertise the service UUID
-    // advertisement.addServiceUUID(NimBLEUUID(SERVICE_UUID));
-    advertisement.setLegacyAdvertising(true);
-    advertisement.setConnectable(true);
+    // // Advertise the service UUID
+    // // advertisement.addServiceUUID(NimBLEUUID(SERVICE_UUID));
+    // advertisement.setLegacyAdvertising(true);
+    // advertisement.setConnectable(true);
 
-    // Scan response: service UUID
-    NimBLEExtAdvertisement scanResponse;
+    // // Scan response: service UUID
+    // NimBLEExtAdvertisement scanResponse;
 
-    scanResponse.addServiceUUID(NimBLEUUID(SERVICE_UUID));
+    // scanResponse.addServiceUUID(NimBLEUUID(SERVICE_UUID));
 
-    // Get extended advertising manager
-    NimBLEExtAdvertising* pAdvertising =
+    // // Get extended advertising manager
+    // NimBLEExtAdvertising* pAdvertising =
+    //     NimBLEDevice::getAdvertising();
+
+    // // Register advertisement data as instance 0
+    // if (!pAdvertising->setInstanceData(0, advertisement)) {
+    //     D_println("ERROR: Failed to configure BLE advertising");
+    //     return;
+    // }
+    // if (!pAdvertising->setScanResponseData(0, scanResponse)) {
+    //     D_println("ERROR: Failed to configure BLE scan response");
+    //     return;
+    // }
+    // // Start advertising instance 0 indefinitely
+    // if (!pAdvertising->start(0, 0, 0)) {
+    //     D_println("ERROR: Failed to start BLE advertising");
+    //     return;
+    // }
+    // D_printf("Advertising active: %s\n", pAdvertising->isActive(0) ? "YES" : "NO");
+
+    //ESP32 core v3.x BLE code
+    NimBLEAdvertising* advertising =
         NimBLEDevice::getAdvertising();
 
-    // Register advertisement data as instance 0
-    if (!pAdvertising->setInstanceData(0, advertisement)) {
-        D_println("ERROR: Failed to configure BLE advertising");
-        return;
-    }
-    if (!pAdvertising->setScanResponseData(0, scanResponse)) {
-        D_println("ERROR: Failed to configure BLE scan response");
-        return;
-    }
-    // Start advertising instance 0 indefinitely
-    if (!pAdvertising->start(0, 0, 0)) {
-        D_println("ERROR: Failed to start BLE advertising");
-        return;
-    }
+    advertising->addServiceUUID(bleService->getUUID());
+    advertising->setName("BABY-CAM");
 
-    D_printf("Advertising active: %s\n", pAdvertising->isActive(0) ? "YES" : "NO");
+    // advertising->setMinInterval(800);
+    // advertising->setMaxInterval(1200);
+    advertising->start();
 
     ble_on = true;
     D_println("BLE started");
@@ -429,16 +435,20 @@ void stopBLE() {
     }    
     D_println("Stopping BLE");
     // Stop extended advertising instance 0
-    NimBLEExtAdvertising* advertising =
+    // NimBLEExtAdvertising* advertising =
+    //     NimBLEDevice::getAdvertising();
+    // if (advertising) {
+    //     if (advertising->isActive(0)) {
+    //         advertising->stop(0);
+    //         D_println("BLE advertising stopped");
+    //     }
+    // }
+    NimBLEAdvertising* advertising =
         NimBLEDevice::getAdvertising();
-
-    if (advertising) {
-        if (advertising->isActive(0)) {
-            advertising->stop(0);
-            Serial.println("BLE advertising stopped");
-        }
+    if (advertising)
+    {
+        advertising->stop();
     }
-
     NimBLEDevice::deinit(true);
     ble_on = false;
     ipStatusChar = nullptr;
@@ -451,9 +461,12 @@ void checkBLE() {
     if (ble_on && (audioClients > 0 || configAPActive)) {
         //If we have an audioclient or we are in SoftAP mode, turn off BLE 
         stopBLE();
-    } else if (!ble_on && audioClients == 0 && !configAPActive ) {
-        //No audio clients and we are not in SoftAP mode, so start advertising again
-        startBLE();
+    } else if (!ble_on && audioClients == 0 && !configAPActive) {
+        if (millis() - audioDisconnectTimer > AUDIO_DISCONNECT_DELAY) {
+            //No audio clients (for the time deadband period) and we are not in SoftAP mode, so start advertising again
+            audioDisconnectTimer = 0;
+            startBLE();
+        }
     }
 }
 

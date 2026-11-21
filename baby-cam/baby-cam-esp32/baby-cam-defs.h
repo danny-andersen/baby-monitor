@@ -79,6 +79,8 @@ bool video_sw = true; //Whether the Video switch is set to on or off
 bool mic_power = true; //Mic power is always on until power below low threshold
 bool mic_sw = true; //Whether the Mic switch is set to on or off
 volatile uint32_t audioClients = 0; //Number of audio clients connected to control start / stop of BLE
+#define AUDIO_DISCONNECT_DELAY 10000 //10 seconds
+volatile uint32_t audioDisconnectTimer = 0; //Time that the audio client disconnected. This gives a chance for the client to reconnect before starting BLE again
 
 int charging = 0; //Whether powered externally or not
 int drain_power = 0; //Whether the circuit to put an extra power load on is on
@@ -158,7 +160,7 @@ String pi_status_str() {
   return status_str;
 }
 #else
-String pi_status_str() {}
+String pi_status_str() { return("");}
 #endif
 
 String pi_status_desc() {
