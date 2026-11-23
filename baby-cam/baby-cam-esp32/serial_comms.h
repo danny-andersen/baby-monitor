@@ -7,7 +7,7 @@
 #define IP_ADDR "IP="
 #define AP_NAME "AP="
 #define SET_AP "<SET_AP="
-#define WIFI_STR "<WIFI"
+#define WIFI_STR "<WIFI_"
 
 void setupPiSerialComms() {
     PI_SERIAL.begin(
@@ -43,8 +43,8 @@ void requestPiAddr() {
 }
 
 void requestPISetAP() {
-  if (pi_last_req_time > 0 || !video_power || pi_status != UP) {
-    //Still waiting for a response from a previous request, or the PI isnt up yet
+  if (set_pi_ssid_time - millis() < PI_REQUEST_TIME || pi_last_req_time > 0 || !video_power || pi_status != UP) {
+    //We sent a setAP command less than 10 seconds ago, or are still waiting for a response from a previous request, or the PI isnt up yet
     return;
   }
   unsigned long currentMillis = millis();
@@ -115,7 +115,9 @@ void checkPiResponse() {
           }
           else if (rxLine.indexOf(WIFI_STR) >= 0) {
             //Something went wrong setting the wifi om the PI
-            D_printf("PI Wifi failed: %s", rxLine);
+            //Note if it was successful it would send the same response as a GET_IP command
+            D_printf("PI Wifi failed: %s\n", rxLine);
+            set_pi_ssid_time = millis();
           }
         }
         rxLine = "";

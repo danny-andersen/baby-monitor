@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+from time import sleep
 import socket
 
 import serial
@@ -113,7 +114,7 @@ def decrypt_payload(encoded):
     # Convert decrypted JSON
 
     data = json.loads(plaintext.decode("utf-8"))
-    print(f"Decrypted JSON: {data}")
+    # print(f"Decrypted JSON: {data}")
     if not all(k in data for k in ("ssid", "password")):
         raise ValueError("Missing fields in decrypted JSON")
 
@@ -131,16 +132,91 @@ def connect_wifi(data):
     # Build nmcli command
 
     command = [
+        "sudo",
+        "-n",
         "nmcli",
-        "--wait", "30",
         "device",
         "wifi",
-        "connect",
+        "rescan",
+    ]
+    try:
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+    except subprocess.TimeoutExpired:
+        print("WiFi rescan timed out")
+        return False
+    except FileNotFoundError:
+        print("nmcli not found. Is NetworkManager installed?")
+        return False
+
+    
+    sleep(1)  # Wait for rescan to complete
+
+    command = [
+        "sudo",
+        "-n",
+        "nmcli",
+        "connection",
+        "add",
+        "type",
+        "wifi",
+        "con-name",
+        ssid,
+        "ssid",
         ssid
     ]
 
+    try:
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+    except subprocess.TimeoutExpired:
+        print("WiFi add timed out")
+        return False
+    
     if password:
-        command += ["password", password]
+        command = [
+            "sudo",
+            "-n",
+            "nmcli",
+            "connection",
+            "modify",
+            ssid,
+            "wifi-sec.key-mgmt",
+            "wpa-psk",
+            "wifi-sec.psk",
+            password
+        ]
+        try:
+
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+        except subprocess.TimeoutExpired:
+            print("WiFi modify timed out")
+            return False
+
+    command = [
+        "sudo",
+        "nmcli",
+        "connection",
+        "up",
+        ssid
+    ]
 
     try:
 
