@@ -1,5 +1,5 @@
 
-import asyncio
+from time import sleep 
 import json
 import base64
 import subprocess
@@ -13,40 +13,53 @@ from ble_uuids import AES_KEY_HEX, BLE_TIMEOUT, IP_CHAR_UUID, NONCE_SIZE, TAG_SI
 async def get_ip():
 
     print("Scanning for BLE devices...")
-    device = await BleakScanner.find_device_by_filter(
-        lambda d, ad:
-            d.name == BLE_DEVICE_NAME or
-            ad.local_name == BLE_DEVICE_NAME,
-        timeout=SCAN_TIMEOUT
-    )
-    if device is None:
+    devices = await BleakScanner.discover()
+    target = None
+
+    for device in devices:
+        print(f"Found device: {device.name} ({device.address})")
+        if device.name == BLE_DEVICE_NAME:
+            target = device
+            break
+            
+    # device = await BleakScanner.find_device_by_filter(
+    #     lambda d, ad:
+    #         d.name == BLE_DEVICE_NAME or
+    #         ad.local_name == BLE_DEVICE_NAME,
+    #     timeout=SCAN_TIMEOUT
+    # )
+    if target is None:
         print(f"{BLE_DEVICE_NAME} BLE device not found")
         return None
 
-    print(f"Found device: {device.name} ({device.address})")
+    print(f"Found device: {target.name} ({target.address})")
 
-    async with BleakClient(device.address, timeout=BLE_TIMEOUT) as client:
-        print(f"Connected to {device.name} ({device.address})")
-        print(f"BLE MTU: {client.mtu_size}")
-        ip = await client.read_gatt_char(IP_CHAR_UUID)
-        encrypted_ip = ip.decode("ascii".strip())
-        if not encrypted_ip:
-            raise RuntimeError(
-                "BLE characteristic contains no data"
-            )
+    try:
+        async with BleakClient(target.address, timeout=BLE_TIMEOUT) as client:
+            print(f"Connected to {target.name} ({target.address})")
+            print(f"BLE MTU: {client.mtu_size}")
+            ip = await client.read_gatt_char(IP_CHAR_UUID)
+            encrypted_ip = ip.decode("ascii").strip()
+            if not encrypted_ip:
+                raise RuntimeError(
+                    "BLE characteristic contains no data"
+                )
 
-        print(f"Received {len(encrypted_ip)} encrypted characters")
+            print(f"Received {len(encrypted_ip)} encrypted characters")
 
-        # Decrypt
+            # Decrypt
 
-        credentials = decrypt_payload(encrypted_ip)
+            credentials = decrypt_payload(encrypted_ip)
 
-        print("\nDecrypted WiFi information:")
-        print("SSID:", credentials["ssid"])
-        print("ESP32 IP:", credentials["ip"])
-        print("Password: [hidden]")
+            print("\nDecrypted WiFi information:")
+            print("SSID:", credentials["ssid"])
+            print("ESP32 IP:", credentials["ip"])
+            print("Password: [hidden]")
 
-        return credentials
+            return credentials
+    except Exception as e:
+        print(f"BLE connection failed: {e}")
+        return None
         
 
 # ============================================================
@@ -104,16 +117,45 @@ def connect_wifi(ssid, password):
     # Build nmcli command
 
     command = [
+        "sudo",
+        "-n",
         "nmcli",
-        "--wait", "30",
         "device",
         "wifi",
-        "connect",
+        "rescan",
+    ]
+    try:
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+    except subprocess.TimeoutExpired:
+        print("WiFi rescan timed out")
+        return False
+    except FileNotFoundError:
+        print("nmcli not found. Is NetworkManager installed?")
+        return False
+
+    
+    sleep(1)  # Wait for rescan to complete
+
+    command = [
+        "sudo",
+        "-n",
+        "nmcli",
+        "connection",
+        "add",
+        "type",
+        "wifi",
+        "con-name",
+        ssid,
+        "ssid",
         ssid
     ]
-
-    if password:
-        command += ["password", password]
 
     try:
 
@@ -121,15 +163,56 @@ def connect_wifi(ssid, password):
             command,
             capture_output=True,
             text=True,
-            timeout=40
+            timeout=10
         )
 
+    except subprocess.TimeoutExpired:
+        print("WiFi add timed out")
+        return False
+    
+    if password:
+        command = [
+            "sudo",
+            "-n",
+            "nmcli",
+            "connection",
+            "modify",
+            ssid,
+            "wifi-sec.key-mgmt",
+            "wpa-psk",
+            "wifi-sec.psk",
+            password
+        ]
+        try:
+
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+        except subprocess.TimeoutExpired:
+            print("WiFi modify timed out")
+            return False
+
+    command = [
+        "sudo",
+        "nmcli",
+        "connection",
+        "up",
+        ssid
+    ]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=40
+        )
         if result.returncode == 0:
-
             print("WiFi connection successful")
-
             print(result.stdout.strip())
-
             return True
 
         print("WiFi connection failed")
@@ -138,12 +221,6 @@ def connect_wifi(ssid, password):
         return False
 
     except subprocess.TimeoutExpired:
-
         print("WiFi connection timed out")
-        return False
-
-    except FileNotFoundError:
-
-        print("nmcli not found. Is NetworkManager installed?")
         return False
 

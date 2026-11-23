@@ -583,6 +583,8 @@ class MainWindow(QWidget):
 
 
     def battery_status_error(self, message):
+        self.remote_timer.stop()
+
         batt = RemoteStatus()
         # Set default values to indicate no battery information available
         batt.battery_level = 0
@@ -593,6 +595,8 @@ class MainWindow(QWidget):
         # Try and refresh the URLs from BLE discovery, in case the remote device has changed its IP address
         print(f"Battery status request failed: {message}, attempting to refresh status URLs from BLE")
         self.refresh_urls_from_ble()
+        # Restart the remote polling timer to try again in 2 seconds
+        self.remote_timer.start(2000)
         # print(f"Battery status request failed: {message}")
         
     def update_camera_status(self, status):
