@@ -331,6 +331,7 @@ public:
     {
         D_println("BLE client disconnected");
         NimBLEDevice::startAdvertising();
+        //ESP32 core v4.x below
         // NimBLEExtAdvertising* pAdvertising =
         //     NimBLEDevice::getAdvertising();
         // if (pAdvertising) {
@@ -417,7 +418,7 @@ void startBLE() {
         NimBLEDevice::getAdvertising();
 
     advertising->addServiceUUID(bleService->getUUID());
-    advertising->setName("BABY-CAM");
+    advertising->setName(BLE_DEVICE_NAME);
 
     // advertising->setMinInterval(800);
     // advertising->setMaxInterval(1200);
