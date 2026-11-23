@@ -48,6 +48,7 @@ bool addNetwork(const String &ssid,
     if (password.length() > 63)
         return false;
 
+    uint8_t cnt = 0;
     for (auto &network : networks)
     {
 
@@ -55,6 +56,7 @@ bool addNetwork(const String &ssid,
         {
 
             network.password = password;
+            strncpy(networkList[cnt].password, password.c_str(), sizeof(password));
 
             wifiMulti.addAP(
                 ssid.c_str(),
@@ -64,6 +66,7 @@ bool addNetwork(const String &ssid,
 
             return true;
         }
+        cnt++;
     }
 
     if (networks.size() >= MAX_NETWORKS)
@@ -74,7 +77,12 @@ bool addNetwork(const String &ssid,
     credential.ssid = ssid;
     credential.password = password;
 
+    strncpy(networkList[networkCount].ssid, credential.ssid.c_str(), sizeof(credential.ssid));
+    strncpy(networkList[networkCount].password, credential.password.c_str(), sizeof(credential.password));
+    networkList[networkCount].goodNetwork = true;
+
     networks.push_back(credential);
+    networkCount += 1; 
 
     wifiMulti.addAP(
         ssid.c_str(),
@@ -95,7 +103,6 @@ void mergePreconfiguredNetworks() {
         String password = PRECONFIGURED_WIFI[i].password;
 
         bool found = false;
-
         for (const auto& network : networks) {
 
             if (network.ssid == ssid) {
@@ -123,7 +130,12 @@ void mergePreconfiguredNetworks() {
             credential.ssid = ssid;
             credential.password = password;
 
+            strncpy(networkList[networkCount].ssid, credential.ssid.c_str(), sizeof(credential.ssid));
+            strncpy(networkList[networkCount].password, credential.password.c_str(), sizeof(credential.password));
+            networkList[networkCount].goodNetwork = true;
+
             networks.push_back(credential);
+            networkCount++;
 
             D_println("Added predefined WiFi: " + ssid);
 
@@ -155,6 +167,7 @@ void loadNetworks()
 {
 
     networks.clear();
+    networkCount = 0;
 
     preferences.begin("wifi-config", true);
 
@@ -163,6 +176,7 @@ void loadNetworks()
     if (count > MAX_NETWORKS)
         count = MAX_NETWORKS;
 
+    networkCount = count;
     for (uint8_t i = 0; i < count; i++)
     {
 
@@ -183,13 +197,16 @@ void loadNetworks()
             credential.ssid = ssid;
             credential.password = password;
 
+            strncpy(networkList[i].ssid, credential.ssid.c_str(), sizeof(credential.ssid));
+            strncpy(networkList[i].password, credential.password.c_str(), sizeof(credential.password));
+            networkList[i].goodNetwork = true;
             networks.push_back(credential);
 
             wifiMulti.addAP(
                 ssid.c_str(),
                 password.c_str());
 
-            D_println("Loaded WiFi: " + ssid);
+            D_printf("Loaded WiFi: %s and saved %d as %s\n", ssid, i, networkList[i].ssid);
         }
     }
 
@@ -213,27 +230,19 @@ bool connectWiFi(uint32_t timeoutMs)
 
     while (millis() - startTime < timeoutMs)
     {
-
         if (wifiMulti.run() == WL_CONNECTED)
         {
-
             D_println();
             D_println("WiFi connected");
-
             D_print("SSID: ");
             D_println(WiFi.SSID());
-
             D_print("IP: ");
             D_println(WiFi.localIP());
-
             return true;
         }
-
         delay(250);
     }
-
     D_println("WiFi connection timeout");
-
     return false;
 }
 

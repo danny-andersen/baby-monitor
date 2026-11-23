@@ -1,4 +1,4 @@
-#define DEBUG 1 // SET TO 0 TO REMOVE TRACES
+#define DEBUG 0 // SET TO 0 TO REMOVE TRACES
 
 #if DEBUG
 #define D_Serial Serial
@@ -47,7 +47,8 @@
 static const uint32_t WIFI_TIMEOUT_MS = 10000;
 static const uint32_t NEW_WIFI_TIMEOUT_MS = 20000;
 static const uint8_t MAX_NETWORKS = 10;
-#define WIFI_CHECK_INTERVAL 10000 // Interval of 10 second (1000 ms)
+#define WIFI_CHECK_INTERVAL 10000  // Interval of 10 second (1000 ms)
+
 WiFiMulti wifiMulti;
 WebServer server(8080);
 unsigned long lastWifiCheckMillis = 0;
@@ -56,8 +57,28 @@ struct WiFiCredential
     String ssid;
     String password;
 };
-std::vector<WiFiCredential> networks;
+struct WiFiNetworks
+{
+  char ssid[32];
+  char password[32];
+  bool goodNetwork; //True is OK, false is bad
+};
+WiFiNetworks networkList[MAX_NETWORKS];
+uint8_t connectingNetwork = -1;
+unsigned long connectStartTime = 0;
+
+enum WifiState
+{
+    WIFI_AP_MODE,
+    WIFI_CONNECTING,
+    WIFI_CONNECTED
+};
+
+WifiState wifiState = WIFI_AP_MODE;
 bool configAPActive = false;
+std::vector<WiFiCredential> networks;
+uint8_t networkCount = 0;
+
 
 //Power thresholds
 #define VIDEO_ON_THRESHOLD 60
@@ -130,7 +151,7 @@ unsigned long pi_shutdown_time = 0; //Time the PI responded to the shutdown
 unsigned long pi_shutdown_request_time; //Time the PI was told to shutdown
 unsigned long pi_last_req_time = 0;  //Time last request was sent to PI
 unsigned long pi_last_status_time = 0;  //Time last status command was sent to PI
-
+unsigned long set_pi_ssid_time = 0; //Time that tried to set PI SSID - retry every 10 seconds or so
 #if DEBUG
 String pi_status_str() {
   String status_str = "";

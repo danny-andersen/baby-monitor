@@ -84,6 +84,57 @@ void wifiClientConnected() {
 
 }
 
+void tryKnownNetwork(const char* ssid, const char* password)
+{
+    Serial.printf("Attempting connection to %s\n", ssid);
+
+    wifiState = WIFI_CONNECTING;
+    connectStartTime = millis();
+
+    // Keep AP running, but use both AP and station mode
+    WiFi.mode(WIFI_AP_STA);
+
+    WiFi.begin(ssid, password);
+}
+
+void monitorWifiConnection()
+{
+    if (wifiState != WIFI_CONNECTING)
+        return;
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        Serial.printf("Connected to %s\n",
+                      WiFi.SSID().c_str());
+
+        Serial.printf("IP address: %s\n",
+                      WiFi.localIP().toString().c_str());
+
+        // Connection successful - now shut down SoftAP
+        // Stop configuration AP after successful connection
+        server.close();
+        server.stop();
+        WiFi.softAPdisconnect(true);
+        configAPActive = false;
+        wifiState = WIFI_CONNECTED;
+        D_println("SoftAP stopped");
+    }
+    else if (millis() - connectStartTime > WIFI_TIMEOUT_MS)
+    {
+        if (connectingNetwork != -1) {
+          D_printf("Marking network %d as bad\n", connectingNetwork);
+          networkList[connectingNetwork].goodNetwork = false;
+        }
+
+        D_println("Connection timed out");
+        // Stop the failed station connection
+        WiFi.disconnect(false, false);
+        // Remain in AP+STA mode
+        wifiState = WIFI_AP_MODE;
+        startConfigAP();
+    }
+}
+
 void setupWifi() {
     // Start in station mode
     WiFi.mode(WIFI_STA);
@@ -94,16 +145,24 @@ void setupWifi() {
     //Merge in preconfigured (only done once)
     mergePreconfiguredNetworks();
 
+    D_print("Loaded networks: ");
+    for (uint8_t i=0; i<networkCount; i++) {
+        D_print(networkList[i].ssid);
+    }
+    D_println();
     WiFi.setSleep(false);
     // Connect to Wifi
 
+    wifiState = WIFI_CONNECTING;
     if (connectWiFi(WIFI_TIMEOUT_MS))
     {
+      wifiState = WIFI_CONNECTED;
       wifiClientConnected();
     }
     else
     {
       // No known AP found - start configuration portal
+      wifiState = WIFI_AP_MODE;
       startConfigAP();
     }
     //Common root for both modes
@@ -113,20 +172,80 @@ void setupWifi() {
 }
 
 void check_wifi() {
-    if (!configAPActive && millis() - lastWifiCheckMillis > WIFI_CHECK_INTERVAL) {
-        D_printf("Heap=%u, Min Heap=%u RSSI=%d dBm \n", ESP.getFreeHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
-        lastWifiCheckMillis = millis();
-        if (wifiMulti.run() == WL_CONNECTED) {
-            if (!wifi_connected) {
-                //We have restarted Wifi
-                wifiClientConnected();
-            }
-        } else if (wifi_connected) {
-            //Lost connection
-            D_println("Lost wifi");
-            server.close();
-            server.stop();
-            wifi_connected = false;
+    monitorWifiConnection();
+    if (millis() - lastWifiCheckMillis > WIFI_CHECK_INTERVAL) {
+      D_printf("Heap=%u, Min Heap=%u RSSI=%d dBm \n", ESP.getFreeHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
+      lastWifiCheckMillis = millis();
+      if (!configAPActive) {
+          // In normal AP client mode - check still connected ok
+          if (wifiMulti.run() == WL_CONNECTED) {
+              if (!wifi_connected) {
+                  //We have restarted Wifi
+                  wifiClientConnected();
+              }
+          } else if (wifi_connected) {
+              //Lost connection
+              D_println("Lost wifi");
+              server.close();
+              server.stop();
+              wifi_connected = false;
+              //Wifi will try and reconnect - give it a chance before going into ConfigAPmode
+              wifiState = WIFI_CONNECTING;
+              connectStartTime = millis();
+          }
+      } else {
+        //Couldnt connect to a wifi network before, so we are in SoftAP mode - check to see if we can connect now
+        D_println("In AP mode - scanning for known networks...");
+        int n = WiFi.scanNetworks(false, true);
+        if (n < 0)
+        {
+            D_println("WiFi scan failed");
+            return;
         }
+
+        bool knownNetworkFound = false;
+        for (int i = 0; i < n; i++)
+        {
+            String ssid = WiFi.SSID(i);
+            D_printf("Found: %s, RSSI: %d\n",
+                          ssid,
+                          WiFi.RSSI(i));
+            // Check against pre-configured networks
+            bool found = false;
+            for (uint8_t i = 0; i < networkCount; i++) {
+              if (ssid.compareTo(networkList[i].ssid) == 0) {
+                if (networkList[i].goodNetwork) {
+                  knownNetworkFound = true;
+                  connectingNetwork = i;
+                  D_printf("Trying known good network id %d found: %s\n", i, ssid);
+                  tryKnownNetwork(networkList[i].ssid, networkList[i].password);
+                  break;
+                } else {
+                  D_printf("Ignoring known bad network %s\n",ssid);
+                }
+              }
+            }
+            if (knownNetworkFound)
+                break;
+        }
+        //Clear bad flag on networks that are not present - they may have failed if the network went down
+        for (uint8_t i = 0; i < networkCount; i++) {
+          if (!networkList[i].goodNetwork) {
+            bool found = false;
+            for (int j = 0; j < n; j++)
+            {
+                String ssid = WiFi.SSID(j);
+                if (ssid.compareTo(networkList[i].ssid) == 0) {
+                  found = true;
+                  break;
+                }
+            }
+            if (!found) {
+              networkList[i].goodNetwork = true;
+            }
+          }
+        }
+        WiFi.scanDelete();
+      }
     }
 }
