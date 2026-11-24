@@ -546,7 +546,7 @@ class MainWindow(QWidget):
     # ==================================================
         
     def start_remote_polling(self):
-        # Fetch immediately, then once every minute
+        # Fetch immediately, then once every 2 seconds
         self.remote_timer = QTimer(self)
         self.remote_timer.timeout.connect(
             self.fetch_remote_status
@@ -576,7 +576,12 @@ class MainWindow(QWidget):
 
 
     def update_remote_status(self, remote_status: RemoteStatus):
-        self.remote_status = remote_status
+        if (remote_status.mic_sw == 1 and self.remote_status.mic_sw == 0):
+            # Mic back on - Force clearing of mic switched off 
+            self.remote_status = remote_status
+            self.audio_status_changed("")
+        else:
+            self.remote_status = remote_status
         self.icon.set_status(remote_status)
         self.update_camera_url(remote_status.video_addr)
         self.update_camera_status(remote_status.camera_status)
